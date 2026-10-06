@@ -1,0 +1,334 @@
+-- ============================================================
+-- KMD EMPIRE · migration 4 · balance derivation + Unilevel reward engine
+-- ============================================================
+
+-- Ledger is the source of truth for every balance shown anywhere in the app.
+create or replace function public.kmd_member_balances(p_member uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  with pts as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then total_points end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then total_points end), 0) as debits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'pending' then total_points end), 0) as pending_debits
+    from public.point_ledger where beneficiary_id = p_member
+  ), loy as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then credit_amount end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then credit_amount end), 0) as debits
+    from public.loyalty_credit_ledger where beneficiary_id = p_member
+  ), wal as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then amount end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then amount end), 0) as debits
+    from public.shopping_wallet_ledger where member_id = p_member
+  )
+  select jsonb_build_object(
+    'unilevelPoints',   pts.credits - pts.debits,
+    'pendingPoints',    pts.pending_debits,
+    'availablePoints',  pts.credits - pts.debits - pts.pending_debits,
+    'loyaltyCredits',   loy.credits - loy.debits,
+    'shoppingWallet',   wal.credits - wal.debits,
+    'lifetimeEarnings', pts.credits
+  ) from pts, loy, wal;
+$$;
+
+-- ============================================================
+-- THE REWARD ENGINE
+-- One transaction. Any RAISE rolls the whole distribution back, so a
+-- partially paid Level 1-4 distribution can never be committed.
+-- Idempotency is enforced twice: orders.rewards_processed and the unique
+-- point_ledger.idempotency_key.
+-- ============================================================
+create or replace function public.kmd_process_qualified_purchase(p_order_id uuid, p_actor uuid default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_buyer public.profiles%rowtype;
+  v_item record;
+  v_cfg record;
+  v_ancestor uuid;
+  v_ben public.profiles%rowtype;
+  v_level int;
+  v_max int;
+  v_ppu numeric;
+  v_total numeric;
+  v_rate numeric;
+  v_key text;
+  v_txn text;
+  v_ledger_id uuid;
+  v_loy_level int;
+  v_loy_ben uuid;
+  v_loy_amount numeric;
+  v_loy_key text;
+  v_loy_txn text;
+  v_item_count int := 0;
+  v_levels jsonb := '[]'::jsonb;
+  v_skipped jsonb := '[]'::jsonb;
+  v_loyalty jsonb := '[]'::jsonb;
+  v_awarded numeric := 0;
+  v_loyalty_awarded numeric := 0;
+begin
+  -- 1. lock the purchase so two simultaneous confirmations serialise
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','Purchase DB record not found for this order ID');
+  end if;
+
+  -- 2. idempotency fast path (required test #2)
+  if v_order.rewards_processed then
+    return jsonb_build_object(
+      'status','ALREADY_PROCESSED',
+      'reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','REWARD ALREADY PROCESSED FOR THIS TRANSACTION',
+      'orderId', v_order.id,
+      'orderNumber', v_order.order_number,
+      'processedAt', v_order.rewards_processed_at);
+  end if;
+
+  -- 3. qualification gate (required test #1)
+  if v_order.status <> 'confirmed' then
+    return jsonb_build_object(
+      'status','NOT_QUALIFIED',
+      'reason','PAYMENT_NOT_CONFIRMED',
+      'reasonText','PAYMENT NOT CONFIRMED - order status is ' || v_order.status,
+      'orderId', v_order.id,
+      'orderNumber', v_order.order_number,
+      'orderStatus', v_order.status);
+  end if;
+
+  -- 4. buyer
+  select * into v_buyer from public.profiles where id = v_order.buyer_profile_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','BUYER_MEMBER_RECORD_NOT_FOUND',
+      'reasonText','BUYER MEMBER RECORD NOT FOUND',
+      'orderNumber', v_order.order_number);
+  end if;
+
+  v_max := 5;
+  select coalesce((value #>> '{}')::int, 5) into v_max from public.system_settings where key = 'max_unilevel_levels';
+  v_max := coalesce(v_max, 5);
+
+  v_rate := 1;
+  select coalesce((value #>> '{}')::numeric, 1) into v_rate from public.system_settings where key = 'point_to_peso_rate';
+  v_rate := coalesce(v_rate, 1);
+
+  -- 5. line items: product identity comes from product_id + SKU, never from the name
+  for v_item in
+    select oi.id as item_id, oi.product_id, oi.sku, oi.product_name, oi.quantity,
+           p.id as prod_id, p.is_active as product_active
+    from public.order_items oi
+    left join public.products p on p.id = oi.product_id
+    where oi.order_id = v_order.id
+    order by oi.created_at
+  loop
+    v_item_count := v_item_count + 1;
+
+    if v_item.prod_id is null then
+      raise exception 'KMD_PRODUCT_NOT_FOUND: line item % references a product that does not exist (SKU %)',
+        v_item.item_id, v_item.sku;
+    end if;
+
+    if not v_item.product_active then
+      raise exception 'KMD_PRODUCT_INACTIVE: PRODUCT IS INACTIVE - % (%)',
+        v_item.product_name, v_item.sku;
+    end if;
+
+    -- 6. reward configuration, keyed by product_id
+    select * into v_cfg from public.reward_configurations rc
+      where rc.product_id = v_item.product_id and rc.is_active = true;
+    if not found then
+      raise exception 'KMD_NO_REWARD_CONFIGURATION: PRODUCT SKU HAS NO REWARD CONFIGURATION (SKU %)', v_item.sku;
+    end if;
+
+    if v_cfg.sku <> v_item.sku then
+      raise exception 'KMD_SKU_MISMATCH: order item SKU % does not match the reward configuration SKU %',
+        v_item.sku, v_cfg.sku;
+    end if;
+
+    -- 7. trace the sponsor genealogy upward, level 1 -> 5
+    for v_level in 1..v_max loop
+      select sr.ancestor_id into v_ancestor
+      from public.sponsor_relationships sr
+      where sr.descendant_id = v_order.buyer_profile_id and sr.level = v_level;
+
+      if v_ancestor is null then
+        v_skipped := v_skipped || jsonb_build_object(
+          'level', v_level, 'sku', v_item.sku,
+          'reason', 'LEVEL_' || v_level || '_UPLINE_DOES_NOT_EXIST',
+          'reasonText', 'LEVEL ' || v_level || ' UPLINE DOES NOT EXIST');
+        continue;
+      end if;
+
+      select * into v_ben from public.profiles where id = v_ancestor;
+      if not found then
+        v_skipped := v_skipped || jsonb_build_object(
+          'level', v_level, 'sku', v_item.sku,
+          'reason','SPONSOR_ID_INVALID',
+          'reasonText','SPONSOR ID INVALID at level ' || v_level);
+        continue;
+      end if;
+
+      if v_ben.account_status <> 'active' then
+        v_skipped := v_skipped || jsonb_build_object(
+          'level', v_level, 'beneficiaryMemberCode', v_ben.member_code,
+          'reason','UPLINE_NOT_ACTIVE',
+          'reasonText','LEVEL ' || v_level || ' UPLINE ' || v_ben.member_code || ' IS NOT ACTIVE');
+        continue;
+      end if;
+
+      v_ppu := case v_level
+        when 1 then v_cfg.level1_points
+        when 2 then v_cfg.level2_points
+        when 3 then v_cfg.level3_points
+        when 4 then v_cfg.level4_points
+        when 5 then v_cfg.level5_points
+      end;
+
+      if coalesce(v_ppu, 0) <= 0 then
+        v_skipped := v_skipped || jsonb_build_object(
+          'level', v_level, 'beneficiaryMemberCode', v_ben.member_code,
+          'reason','LEVEL_' || v_level || '_POINTS_NOT_CONFIGURED',
+          'reasonText','LEVEL ' || v_level || ' POINTS NOT CONFIGURED (0) - no ledger row created. Configure it in Reward Configuration.');
+        continue;
+      end if;
+
+      -- 8. total points = qualified quantity x point value for that level
+      v_total := v_ppu * v_item.quantity;
+      v_key := v_order.id::text || ':' || v_item.item_id::text || ':' || v_ancestor::text || ':UNILEVEL_BONUS:L' || v_level;
+      v_txn := 'KMD-PT-' || lpad(nextval('public.kmd_point_txn_seq')::text, 8, '0');
+      v_ledger_id := null;
+
+      insert into public.point_ledger (
+        transaction_id, order_id, order_item_id, buyer_profile_id, buyer_member_code,
+        beneficiary_id, beneficiary_member_code, sponsor_id, product_id, sku, product_name,
+        quantity, unilevel_level, points_per_unit, total_points,
+        reward_type, transaction_type, direction, status, trigger_event, posted_at,
+        processed_by, idempotency_key, is_test
+      ) values (
+        v_txn, v_order.id, v_item.item_id, v_order.buyer_profile_id, v_order.buyer_member_code,
+        v_ancestor, v_ben.member_code, v_ancestor, v_item.product_id, v_item.sku, v_item.product_name,
+        v_item.quantity, v_level, v_ppu, v_total,
+        'UNILEVEL_BONUS','UNILEVEL_BONUS','CREDIT','posted',
+        coalesce(v_order.qualification_source,'payment_confirmed'), now(),
+        p_actor, v_key, v_order.is_test
+      )
+      on conflict (idempotency_key) do nothing
+      returning id into v_ledger_id;
+
+      if v_ledger_id is null then
+        v_skipped := v_skipped || jsonb_build_object(
+          'level', v_level, 'beneficiaryMemberCode', v_ben.member_code,
+          'reason','REWARD_ALREADY_PROCESSED_FOR_LEVEL',
+          'reasonText','duplicate ledger row prevented at level ' || v_level);
+        continue;
+      end if;
+
+      -- 9. cached balance moves in the same transaction as its ledger row
+      update public.profiles
+        set unilevel_points_balance = unilevel_points_balance + v_total,
+            total_lifetime_earnings = total_lifetime_earnings + (v_total * v_rate)
+        where id = v_ancestor;
+
+      v_awarded := v_awarded + v_total;
+      v_levels := v_levels || jsonb_build_object(
+        'level', v_level,
+        'beneficiaryMemberCode', v_ben.member_code,
+        'beneficiaryName', v_ben.full_name,
+        'sku', v_item.sku,
+        'quantity', v_item.quantity,
+        'pointsPerUnit', v_ppu,
+        'totalPoints', v_total,
+        'ledgerId', v_ledger_id,
+        'transactionId', v_txn);
+    end loop;
+
+    -- 10. loyalty credit (separate ledger, separate balance)
+    if coalesce(v_cfg.loyalty_credit, 0) > 0 then
+      v_loy_level := coalesce(v_cfg.loyalty_beneficiary_level, 1);
+      select sr.ancestor_id into v_loy_ben
+      from public.sponsor_relationships sr
+      where sr.descendant_id = v_order.buyer_profile_id and sr.level = v_loy_level;
+
+      if v_loy_ben is null then
+        v_skipped := v_skipped || jsonb_build_object(
+          'level', v_loy_level, 'loyalty', true,
+          'reason','LOYALTY_BENEFICIARY_UPLINE_MISSING',
+          'reasonText','Loyalty Credit beneficiary at level ' || v_loy_level || ' does not exist');
+      else
+        select * into v_ben from public.profiles where id = v_loy_ben;
+        v_loy_amount := v_cfg.loyalty_credit * v_item.quantity;
+        v_loy_key := v_order.id::text || ':' || v_item.item_id::text || ':' || v_loy_ben::text || ':LOYALTY_CREDIT:L' || v_loy_level;
+        v_loy_txn := 'KMD-LY-' || lpad(nextval('public.kmd_loyalty_txn_seq')::text, 8, '0');
+        v_ledger_id := null;
+
+        insert into public.loyalty_credit_ledger (
+          transaction_id, order_id, order_item_id, buyer_profile_id, buyer_member_code,
+          beneficiary_id, beneficiary_member_code, product_id, sku, product_name, quantity,
+          credit_amount, direction, status, trigger_event, posted_at, processed_by,
+          idempotency_key, is_test
+        ) values (
+          v_loy_txn, v_order.id, v_item.item_id, v_order.buyer_profile_id, v_order.buyer_member_code,
+          v_loy_ben, v_ben.member_code, v_item.product_id, v_item.sku, v_item.product_name, v_item.quantity,
+          v_loy_amount, 'CREDIT','posted', coalesce(v_order.qualification_source,'payment_confirmed'),
+          now(), p_actor, v_loy_key, v_order.is_test
+        )
+        on conflict (idempotency_key) do nothing
+        returning id into v_ledger_id;
+
+        if v_ledger_id is not null then
+          update public.profiles
+            set loyalty_credits_balance = loyalty_credits_balance + v_loy_amount
+            where id = v_loy_ben;
+
+          v_loyalty_awarded := v_loyalty_awarded + v_loy_amount;
+          v_loyalty := v_loyalty || jsonb_build_object(
+            'level', v_loy_level,
+            'beneficiaryMemberCode', v_ben.member_code,
+            'amount', v_loy_amount,
+            'ledgerId', v_ledger_id,
+            'transactionId', v_loy_txn);
+        end if;
+      end if;
+    end if;
+  end loop;
+
+  if v_item_count = 0 then
+    raise exception 'KMD_NO_ORDER_ITEMS: ORDER HAS NO LINE ITEMS - nothing to reward';
+  end if;
+
+  -- 11. commit marker + audit trail
+  update public.orders
+    set rewards_processed = true,
+        rewards_processed_at = now(),
+        processed_by = p_actor,
+        qualification_source = coalesce(qualification_source, 'payment_confirmed')
+    where id = v_order.id;
+
+  perform public.kmd_audit(
+    p_actor, 'REWARD_GENERATION', v_order.buyer_profile_id, v_order.id, 'orders', v_order.id::text,
+    jsonb_build_object('rewardsProcessed', false),
+    jsonb_build_object('rewardsProcessed', true, 'totalPoints', v_awarded, 'totalLoyalty', v_loyalty_awarded),
+    'Reward engine executed for ' || v_order.order_number,
+    v_order.is_test);
+
+  return jsonb_build_object(
+    'status', case when jsonb_array_length(v_levels) = 0 and v_loyalty_awarded = 0
+                   then 'PROCESSED_NO_REWARDS' else 'PROCESSED' end,
+    'reasonText', case when jsonb_array_length(v_levels) = 0 and v_loyalty_awarded = 0
+                   then 'Reward engine ran; no eligible upline had a configured value' else null end,
+    'orderId', v_order.id,
+    'orderNumber', v_order.order_number,
+    'buyerMemberCode', v_order.buyer_member_code,
+    'totalPointsAwarded', v_awarded,
+    'totalLoyaltyAwarded', v_loyalty_awarded,
+    'levels', v_levels,
+    'loyaltyCredits', v_loyalty,
+    'skipped', v_skipped);
+end $$;
+
+revoke all on function public.kmd_process_qualified_purchase(uuid,uuid) from public, anon, authenticated;
+grant execute on function public.kmd_process_qualified_purchase(uuid,uuid) to service_role;
+grant execute on function public.kmd_member_balances(uuid) to authenticated, service_role;

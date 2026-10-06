@@ -1,0 +1,247 @@
+-- ============================================================
+-- KMD EMPIRE · migration 7 · sponsor changes, adjustments, configuration
+-- ============================================================
+
+-- Rebuilds the whole genealogy closure from profiles.direct_sponsor_id, which is
+-- the authoritative sponsor field. Also self-heals any closure drift.
+create or replace function public.kmd_rebuild_closure()
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  i int;
+  v_total int;
+begin
+  delete from public.sponsor_relationships;
+
+  insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+  select p.id, p.direct_sponsor_id, 1
+  from public.profiles p
+  where p.direct_sponsor_id is not null;
+
+  for i in 2..5 loop
+    insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+    select sr.descendant_id, p.direct_sponsor_id, i
+    from public.sponsor_relationships sr
+    join public.profiles p on p.id = sr.ancestor_id
+    where sr.level = i - 1 and p.direct_sponsor_id is not null
+    on conflict (descendant_id, level) do nothing;
+  end loop;
+
+  select count(*) into v_total from public.sponsor_relationships;
+  return v_total;
+end $$;
+
+-- Sponsor changes are cycle-checked, rebuilt and audited. Members can never do this.
+create or replace function public.kmd_change_sponsor(
+  p_member uuid,
+  p_new_sponsor uuid,
+  p_actor uuid,
+  p_reason text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_old public.profiles%rowtype;
+  v_sponsor public.profiles%rowtype;
+begin
+  select * into v_member from public.profiles where id = p_member;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND','reasonText','Member record not found');
+  end if;
+
+  if v_member.direct_sponsor_id is not null then
+    select * into v_old from public.profiles where id = v_member.direct_sponsor_id;
+  end if;
+
+  if p_new_sponsor is not null then
+    if p_new_sponsor = p_member then
+      return jsonb_build_object('status','FAILED','reason','SELF_SPONSOR_NOT_ALLOWED',
+        'reasonText','A member cannot sponsor themselves');
+    end if;
+
+    select * into v_sponsor from public.profiles where id = p_new_sponsor;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','SPONSOR_ID_INVALID','reasonText','SPONSOR ID INVALID');
+    end if;
+
+    if exists (
+      select 1 from public.sponsor_relationships
+      where ancestor_id = p_member and descendant_id = p_new_sponsor
+    ) then
+      return jsonb_build_object('status','FAILED','reason','SPONSOR_WOULD_CREATE_CYCLE',
+        'reasonText','That member is already in this member''s downline - the move would create a cycle');
+    end if;
+  end if;
+
+  update public.profiles
+    set direct_sponsor_id = p_new_sponsor,
+        sponsor_code = v_sponsor.member_code
+    where id = p_member;
+
+  perform public.kmd_rebuild_closure();
+
+  perform public.kmd_audit(p_actor, 'SPONSOR_CHANGE', p_member, null, 'profiles', p_member::text,
+    jsonb_build_object('sponsorCode', v_old.member_code, 'sponsorId', v_member.direct_sponsor_id),
+    jsonb_build_object('sponsorCode', v_sponsor.member_code, 'sponsorId', p_new_sponsor),
+    coalesce(p_reason, 'Sponsor changed'), v_member.is_test);
+
+  return jsonb_build_object('status','UPDATED',
+    'memberCode', v_member.member_code,
+    'previousSponsor', v_old.member_code,
+    'newSponsor', v_sponsor.member_code,
+    'reasonText','Sponsor updated and genealogy rebuilt');
+end $$;
+
+create or replace function public.kmd_adjust_points(
+  p_member uuid,
+  p_points numeric,
+  p_direction text,
+  p_reason text,
+  p_actor uuid
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_key text;
+  v_txn text;
+  v_before numeric;
+begin
+  if p_direction not in ('CREDIT','DEBIT') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_DIRECTION',
+      'reasonText','Adjustment direction must be CREDIT or DEBIT');
+  end if;
+  if p_points is null or p_points <= 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_POINT_AMOUNT',
+      'reasonText','Adjustment points must be greater than zero');
+  end if;
+  if coalesce(trim(p_reason),'') = '' then
+    return jsonb_build_object('status','FAILED','reason','REASON_REQUIRED','reasonText','A reason is required for an adjustment');
+  end if;
+
+  select * into v_member from public.profiles where id = p_member for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND','reasonText','Member record not found');
+  end if;
+
+  v_before := v_member.unilevel_points_balance;
+  v_key := 'adjustment:' || p_member::text || ':' || extract(epoch from clock_timestamp())::text;
+  v_txn := 'KMD-PT-' || lpad(nextval('public.kmd_point_txn_seq')::text, 8, '0');
+
+  insert into public.point_ledger (
+    transaction_id, beneficiary_id, beneficiary_member_code, total_points,
+    reward_type, transaction_type, direction, status, trigger_event, posted_at,
+    processed_by, idempotency_key, note, is_test
+  ) values (
+    v_txn, p_member, v_member.member_code, p_points,
+    'ADMIN_ADJUSTMENT','ADMIN_ADJUSTMENT', p_direction, 'posted','admin_adjustment', now(),
+    p_actor, v_key, p_reason, v_member.is_test
+  );
+
+  update public.profiles
+    set unilevel_points_balance = unilevel_points_balance + (case when p_direction = 'CREDIT' then p_points else -p_points end),
+        total_lifetime_earnings = total_lifetime_earnings + (case when p_direction = 'CREDIT' then p_points else 0 end)
+    where id = p_member;
+
+  perform public.kmd_audit(p_actor, 'POINT_ADJUSTMENT', p_member, null, 'point_ledger', v_txn,
+    jsonb_build_object('unilevelPointsBalance', v_before),
+    jsonb_build_object('unilevelPointsBalance', v_before + (case when p_direction = 'CREDIT' then p_points else -p_points end),
+      'direction', p_direction, 'points', p_points),
+    p_reason, v_member.is_test);
+
+  return jsonb_build_object('status','ADJUSTED','transactionId', v_txn, 'points', p_points,
+    'direction', p_direction, 'reasonText','Adjustment posted as a new ledger entry');
+end $$;
+
+create or replace function public.kmd_update_reward_config(
+  p_product_id uuid,
+  p_l1 numeric,
+  p_l2 numeric,
+  p_l3 numeric,
+  p_l4 numeric,
+  p_l5 numeric,
+  p_loyalty numeric,
+  p_loyalty_level int,
+  p_is_active boolean,
+  p_actor uuid
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.reward_configurations%rowtype;
+  v_after public.reward_configurations%rowtype;
+begin
+  select * into v_before from public.reward_configurations where product_id = p_product_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','REWARD_CONFIGURATION_NOT_FOUND',
+      'reasonText','No reward configuration exists for that product');
+  end if;
+
+  if p_loyalty_level not in (1,2,3,4,5) then
+    return jsonb_build_object('status','FAILED','reason','INVALID_LOYALTY_LEVEL',
+      'reasonText','Loyalty beneficiary level must be between 1 and 5');
+  end if;
+
+  update public.reward_configurations
+    set level1_points = greatest(coalesce(p_l1,0), 0),
+        level2_points = greatest(coalesce(p_l2,0), 0),
+        level3_points = greatest(coalesce(p_l3,0), 0),
+        level4_points = greatest(coalesce(p_l4,0), 0),
+        level5_points = greatest(coalesce(p_l5,0), 0),
+        loyalty_credit = greatest(coalesce(p_loyalty,0), 0),
+        loyalty_beneficiary_level = p_loyalty_level,
+        is_active = coalesce(p_is_active, true),
+        updated_by = p_actor
+    where product_id = p_product_id
+    returning * into v_after;
+
+  perform public.kmd_audit(p_actor, 'REWARD_CONFIGURATION_CHANGE', null, null,
+    'reward_configurations', p_product_id::text,
+    jsonb_build_object('level1', v_before.level1_points, 'level2', v_before.level2_points,
+      'level3', v_before.level3_points, 'level4', v_before.level4_points, 'level5', v_before.level5_points,
+      'loyaltyCredit', v_before.loyalty_credit, 'loyaltyLevel', v_before.loyalty_beneficiary_level,
+      'isActive', v_before.is_active),
+    jsonb_build_object('level1', v_after.level1_points, 'level2', v_after.level2_points,
+      'level3', v_after.level3_points, 'level4', v_after.level4_points, 'level5', v_after.level5_points,
+      'loyaltyCredit', v_after.loyalty_credit, 'loyaltyLevel', v_after.loyalty_beneficiary_level,
+      'isActive', v_after.is_active),
+    'Reward configuration updated for SKU ' || v_after.sku, false);
+
+  return jsonb_build_object('status','UPDATED','sku', v_after.sku,
+    'configuration', to_jsonb(v_after), 'reasonText','Reward configuration saved and audited');
+end $$;
+
+create or replace function public.kmd_update_setting(p_key text, p_value jsonb, p_actor uuid)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.system_settings%rowtype;
+begin
+  if coalesce(trim(p_key),'') = '' then
+    return jsonb_build_object('status','FAILED','reason','KEY_REQUIRED','reasonText','A setting key is required');
+  end if;
+
+  select * into v_before from public.system_settings where key = p_key;
+
+  insert into public.system_settings (key, value, description, updated_by, updated_at)
+  values (p_key, p_value, coalesce(v_before.description, 'Updated by administrator'), p_actor, now())
+  on conflict (key) do update set value = excluded.value, updated_by = p_actor, updated_at = now();
+
+  perform public.kmd_audit(p_actor, 'SETTINGS_CHANGE', null, null, 'system_settings', p_key,
+    case when v_before.key is null then null else jsonb_build_object('value', v_before.value) end,
+    jsonb_build_object('value', p_value), 'Setting ' || p_key || ' updated', false);
+
+  return jsonb_build_object('status','UPDATED','key', p_key, 'value', p_value,
+    'reasonText','Setting saved and audited');
+end $$;
+
+-- ---------- grants ----------
+revoke all on function public.kmd_rebuild_closure() from public, anon, authenticated;
+revoke all on function public.kmd_change_sponsor(uuid,uuid,uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_adjust_points(uuid,numeric,text,text,uuid) from public, anon, authenticated;
+revoke all on function public.kmd_update_reward_config(uuid,numeric,numeric,numeric,numeric,numeric,numeric,int,boolean,uuid) from public, anon, authenticated;
+revoke all on function public.kmd_update_setting(text,jsonb,uuid) from public, anon, authenticated;
+
+grant execute on function public.kmd_rebuild_closure() to service_role;
+grant execute on function public.kmd_change_sponsor(uuid,uuid,uuid,text) to service_role;
+grant execute on function public.kmd_adjust_points(uuid,numeric,text,text,uuid) to service_role;
+grant execute on function public.kmd_update_reward_config(uuid,numeric,numeric,numeric,numeric,numeric,numeric,int,boolean,uuid) to service_role;
+grant execute on function public.kmd_update_setting(text,jsonb,uuid) to service_role;

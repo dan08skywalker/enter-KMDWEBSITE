@@ -1,0 +1,9 @@
+project_id = "spb-t4ne6l33wmc3yxup"
+
+# Registration and login lookups run before a session exists, so they cannot
+# require a JWT. Both validate their input and only ever read public lookups.
+[functions.register-member]
+verify_jwt = false
+
+[functions.account-lookup]
+verify_jwt = false

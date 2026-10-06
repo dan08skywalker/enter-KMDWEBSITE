@@ -1,0 +1,121 @@
+import {
+  Activity,
+  BadgeCheck,
+  BadgePercent,
+  BarChart3,
+  BookOpenCheck,
+  Coins,
+  CreditCard,
+  FileClock,
+  Gift,
+  GraduationCap,
+  LayoutDashboard,
+  Link2,
+  ListTree,
+  Package,
+  Receipt,
+  Settings,
+  ShieldCheck,
+  ShoppingBag,
+  Sparkles,
+  Users,
+  Wallet,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
+export interface NavItem {
+  label: string;
+  path: string;
+  icon: LucideIcon;
+  end?: boolean;
+}
+
+export interface NavSection {
+  title: string;
+  items: NavItem[];
+}
+
+/** Member and retailer sidebar (section 34 of the brief). */
+export const MEMBER_NAV: NavSection[] = [
+  {
+    title: "Overview",
+    items: [
+      { label: "Dashboard", path: "/app", icon: LayoutDashboard, end: true },
+      { label: "My Profile", path: "/app/profile", icon: Users },
+      { label: "My Loyalty Card", path: "/app/loyalty-cards", icon: CreditCard },
+    ],
+  },
+  {
+    title: "Compensation",
+    items: [
+      { label: "Unilevel Earnings", path: "/app/unilevel-earnings", icon: BarChart3 },
+      { label: "Loyalty Credits", path: "/app/loyalty-credits", icon: Sparkles },
+      { label: "Point Transactions", path: "/app/point-transactions", icon: Receipt },
+      { label: "Shopping Wallet", path: "/app/shopping-wallet", icon: ShoppingBag },
+      { label: "Redeem Points", path: "/app/redeem", icon: Gift },
+    ],
+  },
+  {
+    title: "Network",
+    items: [
+      { label: "My Team", path: "/app/team", icon: Users },
+      { label: "Genealogy", path: "/app/genealogy", icon: ListTree },
+      { label: "Referral Link", path: "/app/referral", icon: Link2 },
+    ],
+  },
+  {
+    title: "Account",
+    items: [
+      { label: "Orders", path: "/app/orders", icon: Package },
+      { label: "Settings", path: "/app/settings", icon: Settings },
+    ],
+  },
+];
+
+/** Administrator sidebar (section 24 of the brief). */
+export const ADMIN_NAV: NavSection[] = [
+  {
+    title: "Overview",
+    items: [
+      { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
+      { label: "Reward Diagnostics", path: "/admin/diagnostics", icon: Activity },
+      { label: "Verification Report", path: "/admin/verification-report", icon: BookOpenCheck },
+    ],
+  },
+  {
+    title: "Network",
+    items: [
+      { label: "Members", path: "/admin/members", icon: Users },
+      { label: "Retailers", path: "/admin/retailers", icon: BadgePercent },
+      { label: "Genealogy", path: "/admin/genealogy", icon: ListTree },
+    ],
+  },
+  {
+    title: "Commerce",
+    items: [
+      { label: "Orders", path: "/admin/orders", icon: Package },
+      { label: "Payment Verification", path: "/admin/payment-verification", icon: BadgeCheck },
+      { label: "Products", path: "/admin/products", icon: ShoppingBag },
+      { label: "Membership Packages", path: "/admin/packages", icon: GraduationCap },
+    ],
+  },
+  {
+    title: "Rewards",
+    items: [
+      { label: "Reward Configuration", path: "/admin/reward-configuration", icon: Coins },
+      { label: "Point Transactions", path: "/admin/point-transactions", icon: Receipt },
+      { label: "Loyalty Transactions", path: "/admin/loyalty-transactions", icon: Sparkles },
+      { label: "Redemptions", path: "/admin/redemptions", icon: Gift },
+    ],
+  },
+  {
+    title: "System",
+    items: [
+      { label: "Audit Logs", path: "/admin/audit-logs", icon: FileClock },
+      { label: "Settings", path: "/admin/settings", icon: Settings },
+    ],
+  },
+];
+
+export const ADMIN_BADGE = ShieldCheck;
+export const WALLET_ICON = Wallet;

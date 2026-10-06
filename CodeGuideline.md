@@ -7,13 +7,28 @@ project-root/
   ├── i18n.config.json       # i18n manifest for supported locales and language metadata
   ├── public/
   │   └── locales/           # public/locales/{code}.json translation files
+  ├── supabase/
+  │   ├── config.toml        # backend function JWT settings per function
+  │   ├── migrations/        # applied schema migrations (generated, do not hand-edit)
+  │   └── functions/         # server-side backend functions, one directory each
   ├── src/
   │   ├── components/        # All reusable UI components
+  │   │   ├── kmd/           # KMD Empire domain components (stat cards, ledgers, genealogy)
+  │   │   ├── layout/        # App shell, sidebar navigation, route guards
   │   │   └── ui/            # Prebuilt and custom UI components, grouped by function
+  │   ├── contexts/          # React context providers (auth session + member profile)
   │   ├── hooks/             # Custom React hooks
   │   ├── i18n/              # i18n runtime: config.ts (entry) + util.ts (helpers)
+  │   ├── integrations/      # Generated Enter Cloud client and types (never edit by hand)
   │   ├── lib/               # Utility functions and libraries
+  │   │   └── kmd/           # Domain types, formatters, label maps, constants, invoker
   │   ├── pages/             # Application pages (each page in its own subdirectory)
+  │   │   ├── admin/         # Administrator console pages (/admin/*)
+  │   │   ├── member/        # Member and retailer pages (/app/*)
+  │   │   ├── landing/       # Public marketing page (/)
+  │   │   ├── login/         # Username sign-in (/login)
+  │   │   ├── register/      # Registration with referral capture (/register)
+  │   │   └── forgot-password/ # Password reset request (/forgot-password)
   │   ├── App.tsx            # Main app component, sets up route providers
   │   ├── router.tsx         # Router config, sets up routing
   │   ├── main.tsx           # Entry point for the React app
@@ -22,6 +37,37 @@ project-root/
   ├── tailwind.config.ts     # Tailwind CSS configuration
   └── ...                    # Other config and lock files
 ```
+
+## KMD Empire module map
+
+The application is a network-marketing business system whose compensation logic lives
+entirely on the server. Keep this boundary when extending it.
+
+- **supabase/functions/**: `register-member`, `account-lookup`, `member-actions`,
+  `admin-actions`, `reward-diagnostics`, `seed-test-environment`, `run-required-tests`.
+  Functions authorise the caller and then call a database function with `.rpc()`; they
+  never contain raw SQL and never calculate a reward themselves.
+- **Database functions** (created by migration, not on disk): `kmd_register_member`,
+  `kmd_create_order`, `kmd_process_qualified_purchase` (the reward engine),
+  `kmd_confirm_payment`, `kmd_reject_payment`, `kmd_set_order_status`,
+  `kmd_request_redemption`, `kmd_review_redemption`, `kmd_convert_to_wallet`,
+  `kmd_reconcile_member_balance`, `kmd_activate_member`, `kmd_reverse_reward`,
+  `kmd_change_sponsor`, `kmd_adjust_points`, `kmd_update_reward_config`,
+  `kmd_update_setting`, `kmd_diagnose_order`, `kmd_member_balances`, `kmd_audit`.
+- **Ledger tables are append-only from the browser's point of view.** `point_ledger`,
+  `loyalty_credit_ledger`, `shopping_wallet_ledger`, `redemptions` and `audit_logs` have
+  no client write policy. The UI must go through a backend function.
+- **Balances are derived, not stored authoritatively.** `src/hooks/use-member-ledger.ts`
+  recomputes a member's balances from their own ledger rows using the same rule as
+  `kmd_member_balances` (credits − posted debits − held debits).
+- **`src/components/kmd/`**: `page-header`, `stat-card`, `data-table`, `amount`,
+  `status-badge`, `empty-state`, `member-cell`, `loyalty-card`, `genealogy-tree`,
+  `order-status-timeline`, `filter-bar`, `confirm-action-dialog`, `diagnostics-checklist`,
+  `engine-result`.
+- **`src/lib/kmd/`**: `types.ts` (domain types mirroring the tables), `format.ts`
+  (points, peso, dates), `labels.ts` (status to label/tone maps), `constants.ts`,
+  `invoke.ts` (normalised backend function caller).
+
 
 > Backend-handoff temporary files (`scripts/`, `i18n.scan.json`, `reports/i18n/`, `docs/i18n-*.md`) are kept in the repo only until backend integration of i18n statistics/scan/auto-translate is complete. They are owned by the backend long-term and will be removed once integration lands. Treat them as read-only handoff copies — do not extend them.
 

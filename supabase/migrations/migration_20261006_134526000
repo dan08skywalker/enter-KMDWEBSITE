@@ -1,0 +1,202 @@
+-- ============================================================
+-- KMD EMPIRE · migration 8 · product & package administration (audited)
+-- ============================================================
+
+create or replace function public.kmd_create_product(
+  p_actor uuid,
+  p_product_code text,
+  p_name text,
+  p_sku text,
+  p_membership_code text,
+  p_category text,
+  p_product_type text,
+  p_selling_price numeric,
+  p_is_active boolean default true
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid;
+  v_row public.products%rowtype;
+begin
+  if coalesce(trim(p_product_code),'') = '' or coalesce(trim(p_name),'') = '' or coalesce(trim(p_sku),'') = '' then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION',
+      'reasonText','Product code, name and SKU are required');
+  end if;
+  if p_product_type not in ('membership','bundle','reorder') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_PRODUCT_TYPE',
+      'reasonText','Product type must be membership, bundle or reorder');
+  end if;
+  if coalesce(p_selling_price,0) < 0 then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Selling price cannot be negative');
+  end if;
+
+  if exists (select 1 from public.products where upper(product_code) = upper(trim(p_product_code))) then
+    return jsonb_build_object('status','FAILED','reason','DUPLICATE_PRODUCT_CODE',
+      'reasonText','Product code ' || p_product_code || ' already exists');
+  end if;
+  if exists (select 1 from public.products where upper(sku) = upper(trim(p_sku))) then
+    return jsonb_build_object('status','FAILED','reason','DUPLICATE_SKU',
+      'reasonText','SKU ' || p_sku || ' already exists');
+  end if;
+
+  insert into public.products (product_code, name, sku, membership_code, category, product_type, selling_price, is_active)
+  values (trim(p_product_code), trim(p_name), trim(p_sku),
+    nullif(trim(coalesce(p_membership_code,'')),''), coalesce(nullif(trim(coalesce(p_category,'')),''),'General'),
+    p_product_type, coalesce(p_selling_price,0), coalesce(p_is_active,true))
+  returning * into v_row;
+
+  -- A new product starts with an all-zero reward row so it appears in Reward
+  -- Configuration immediately. Values are never invented here.
+  insert into public.reward_configurations (product_id, sku, updated_by)
+  values (v_row.id, v_row.sku, p_actor)
+  on conflict (product_id) do nothing;
+
+  perform public.kmd_audit(p_actor, 'PRODUCT_CREATED', null, null, 'products', v_row.id::text,
+    null, to_jsonb(v_row), 'Product ' || v_row.sku || ' created', false);
+
+  return jsonb_build_object('status','CREATED','productId', v_row.id, 'sku', v_row.sku,
+    'reasonText','Product created. Set its commission values in Reward Configuration.');
+end $$;
+
+create or replace function public.kmd_update_product(
+  p_actor uuid,
+  p_product_id uuid,
+  p_name text,
+  p_sku text,
+  p_membership_code text,
+  p_category text,
+  p_product_type text,
+  p_selling_price numeric,
+  p_is_active boolean
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.products%rowtype;
+  v_after public.products%rowtype;
+begin
+  select * into v_before from public.products where id = p_product_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND','reasonText','Product not found');
+  end if;
+
+  if coalesce(trim(p_name),'') = '' or coalesce(trim(p_sku),'') = '' then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Name and SKU are required');
+  end if;
+  if p_product_type not in ('membership','bundle','reorder') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_PRODUCT_TYPE',
+      'reasonText','Product type must be membership, bundle or reorder');
+  end if;
+  if exists (select 1 from public.products where upper(sku) = upper(trim(p_sku)) and id <> p_product_id) then
+    return jsonb_build_object('status','FAILED','reason','DUPLICATE_SKU',
+      'reasonText','SKU ' || p_sku || ' is already used by another product');
+  end if;
+
+  update public.products
+    set name = trim(p_name),
+        sku = trim(p_sku),
+        membership_code = nullif(trim(coalesce(p_membership_code,'')),''),
+        category = coalesce(nullif(trim(coalesce(p_category,'')),''),'General'),
+        product_type = p_product_type,
+        selling_price = greatest(coalesce(p_selling_price,0),0),
+        is_active = coalesce(p_is_active,true)
+    where id = p_product_id
+    returning * into v_after;
+
+  -- keep the reward matrix keyed to the same SKU
+  update public.reward_configurations set sku = v_after.sku, updated_by = p_actor where product_id = p_product_id;
+
+  perform public.kmd_audit(p_actor, 'PRODUCT_UPDATED', null, null, 'products', p_product_id::text,
+    jsonb_build_object('name', v_before.name, 'sku', v_before.sku, 'category', v_before.category,
+      'productType', v_before.product_type, 'sellingPrice', v_before.selling_price, 'isActive', v_before.is_active),
+    jsonb_build_object('name', v_after.name, 'sku', v_after.sku, 'category', v_after.category,
+      'productType', v_after.product_type, 'sellingPrice', v_after.selling_price, 'isActive', v_after.is_active),
+    'Product ' || v_after.sku || ' updated', false);
+
+  return jsonb_build_object('status','UPDATED','productId', p_product_id, 'sku', v_after.sku,
+    'reasonText','Product saved and audited');
+end $$;
+
+create or replace function public.kmd_create_package(
+  p_actor uuid,
+  p_package_code text,
+  p_name text,
+  p_tier text,
+  p_product_id uuid,
+  p_is_active boolean default true
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_row public.membership_packages%rowtype;
+begin
+  if coalesce(trim(p_package_code),'') = '' or coalesce(trim(p_name),'') = '' then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Package code and name are required');
+  end if;
+  if p_tier not in ('trial','classic','gold','platinum') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_TIER',
+      'reasonText','Tier must be trial, classic, gold or platinum');
+  end if;
+  if not exists (select 1 from public.products where id = p_product_id) then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND','reasonText','The linked product does not exist');
+  end if;
+  if exists (select 1 from public.membership_packages where upper(package_code) = upper(trim(p_package_code))) then
+    return jsonb_build_object('status','FAILED','reason','DUPLICATE_PACKAGE_CODE',
+      'reasonText','Package code ' || p_package_code || ' already exists');
+  end if;
+
+  insert into public.membership_packages (package_code, name, tier, product_id, is_active)
+  values (trim(p_package_code), trim(p_name), p_tier, p_product_id, coalesce(p_is_active,true))
+  returning * into v_row;
+
+  perform public.kmd_audit(p_actor, 'PACKAGE_CREATED', null, null, 'membership_packages', v_row.id::text,
+    null, to_jsonb(v_row), 'Package ' || v_row.package_code || ' created', false);
+
+  return jsonb_build_object('status','CREATED','packageId', v_row.id, 'reasonText','Package created');
+end $$;
+
+create or replace function public.kmd_update_package(
+  p_actor uuid,
+  p_package_id uuid,
+  p_name text,
+  p_tier text,
+  p_product_id uuid,
+  p_is_active boolean
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.membership_packages%rowtype;
+  v_after public.membership_packages%rowtype;
+begin
+  select * into v_before from public.membership_packages where id = p_package_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PACKAGE_NOT_FOUND','reasonText','Package not found');
+  end if;
+  if p_tier not in ('trial','classic','gold','platinum') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_TIER',
+      'reasonText','Tier must be trial, classic, gold or platinum');
+  end if;
+  if not exists (select 1 from public.products where id = p_product_id) then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND','reasonText','The linked product does not exist');
+  end if;
+
+  update public.membership_packages
+    set name = trim(p_name), tier = p_tier, product_id = p_product_id, is_active = coalesce(p_is_active,true)
+    where id = p_package_id
+    returning * into v_after;
+
+  perform public.kmd_audit(p_actor, 'PACKAGE_UPDATED', null, null, 'membership_packages', p_package_id::text,
+    jsonb_build_object('name', v_before.name, 'tier', v_before.tier, 'productId', v_before.product_id, 'isActive', v_before.is_active),
+    jsonb_build_object('name', v_after.name, 'tier', v_after.tier, 'productId', v_after.product_id, 'isActive', v_after.is_active),
+    'Package ' || v_after.package_code || ' updated', false);
+
+  return jsonb_build_object('status','UPDATED','packageId', p_package_id, 'reasonText','Package saved and audited');
+end $$;
+
+revoke all on function public.kmd_create_product(uuid,text,text,text,text,text,text,numeric,boolean) from public, anon, authenticated;
+revoke all on function public.kmd_update_product(uuid,uuid,text,text,text,text,text,numeric,boolean) from public, anon, authenticated;
+revoke all on function public.kmd_create_package(uuid,text,text,text,uuid,boolean) from public, anon, authenticated;
+revoke all on function public.kmd_update_package(uuid,uuid,text,text,uuid,boolean) from public, anon, authenticated;
+
+grant execute on function public.kmd_create_product(uuid,text,text,text,text,text,text,numeric,boolean) to service_role;
+grant execute on function public.kmd_update_product(uuid,uuid,text,text,text,text,text,numeric,boolean) to service_role;
+grant execute on function public.kmd_create_package(uuid,text,text,text,uuid,boolean) to service_role;
+grant execute on function public.kmd_update_package(uuid,uuid,text,text,uuid,boolean) to service_role;

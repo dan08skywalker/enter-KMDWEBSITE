@@ -1,0 +1,169 @@
+-- ============================================================
+-- KMD EMPIRE · migration 6 · realtime, payment confirmation, account type
+-- ============================================================
+
+-- ---------- realtime (verified empty: 0 public tables in the publication) ----------
+alter publication supabase_realtime add table public.profiles;
+alter publication supabase_realtime add table public.orders;
+alter publication supabase_realtime add table public.point_ledger;
+alter publication supabase_realtime add table public.loyalty_credit_ledger;
+alter publication supabase_realtime add table public.shopping_wallet_ledger;
+alter publication supabase_realtime add table public.redemptions;
+alter publication supabase_realtime add table public.audit_logs;
+alter publication supabase_realtime add table public.payment_proofs;
+
+-- ============================================================
+-- Payment confirmation: status change and reward distribution in ONE
+-- transaction. If the engine raises (missing configuration, inactive product),
+-- the confirmation itself rolls back and the order stays unconfirmed --
+-- no partial distribution can be committed.
+-- ============================================================
+create or replace function public.kmd_confirm_payment(
+  p_order_id uuid,
+  p_actor uuid default null,
+  p_qualification_source text default 'payment_confirmed'
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_result jsonb;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','PURCHASE DB RECORD NOT FOUND for this order ID');
+  end if;
+
+  if v_order.status in ('cancelled','rejected') then
+    return jsonb_build_object('status','FAILED','reason','ORDER_NOT_CONFIRMABLE',
+      'reasonText','A ' || v_order.status || ' order cannot be confirmed');
+  end if;
+
+  if v_order.status = 'confirmed' and v_order.rewards_processed then
+    return jsonb_build_object('status','ALREADY_PROCESSED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','REWARD ALREADY PROCESSED FOR THIS TRANSACTION',
+      'orderNumber', v_order.order_number, 'processedAt', v_order.rewards_processed_at);
+  end if;
+
+  update public.payment_proofs
+    set status = 'confirmed', reviewed_by = p_actor, reviewed_at = now()
+    where order_id = p_order_id and status <> 'confirmed';
+
+  update public.orders
+    set status = 'confirmed',
+        qualification_source = coalesce(p_qualification_source, 'payment_confirmed')
+    where id = p_order_id;
+
+  perform public.kmd_audit(p_actor, 'PAYMENT_CONFIRMATION', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text,
+    jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status', 'confirmed'),
+    'Payment confirmed for ' || v_order.order_number, v_order.is_test);
+
+  v_result := public.kmd_process_qualified_purchase(p_order_id, p_actor);
+
+  return v_result || jsonb_build_object('orderNumber', v_order.order_number,
+    'buyerMemberCode', v_order.buyer_member_code);
+end $$;
+
+create or replace function public.kmd_reject_payment(p_order_id uuid, p_actor uuid default null, p_reason text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','Purchase DB record not found');
+  end if;
+  if v_order.rewards_processed then
+    return jsonb_build_object('status','FAILED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','Rewards were already issued for this order - reverse them instead of rejecting');
+  end if;
+
+  update public.payment_proofs set status = 'rejected', reviewed_by = p_actor, reviewed_at = now(),
+    review_notes = p_reason where order_id = p_order_id and status <> 'rejected';
+  update public.orders set status = 'rejected' where id = p_order_id;
+
+  perform public.kmd_audit(p_actor, 'PAYMENT_REJECTION', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text, jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status','rejected'), coalesce(p_reason,'Payment rejected'), v_order.is_test);
+
+  return jsonb_build_object('status','REJECTED','orderNumber', v_order.order_number,
+    'reasonText','Payment rejected');
+end $$;
+
+create or replace function public.kmd_set_order_status(p_order_id uuid, p_status text, p_actor uuid default null, p_reason text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+begin
+  if p_status not in ('pending_payment','proof_submitted','under_review','cancelled') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_ORDER_STATUS',
+      'reasonText','Unsupported order status: ' || coalesce(p_status,'(none)'));
+  end if;
+
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','Purchase DB record not found');
+  end if;
+  if v_order.rewards_processed then
+    return jsonb_build_object('status','FAILED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','Rewards were already issued for this order');
+  end if;
+
+  update public.orders set status = p_status where id = p_order_id;
+
+  perform public.kmd_audit(p_actor, 'ORDER_STATUS_CHANGE', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text, jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status', p_status), coalesce(p_reason,'Order status updated'), v_order.is_test);
+
+  return jsonb_build_object('status','UPDATED','orderStatus', p_status,
+    'reasonText','Order status updated to ' || p_status);
+end $$;
+
+create or replace function public.kmd_set_account_type(p_member uuid, p_account_type text, p_actor uuid)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+begin
+  if p_account_type not in ('member','retailer') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_ACCOUNT_TYPE',
+      'reasonText','Unsupported account type: ' || coalesce(p_account_type,'(none)'));
+  end if;
+
+  select * into v_member from public.profiles where id = p_member;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND','reasonText','Member record not found');
+  end if;
+
+  update public.profiles set account_type = p_account_type where id = p_member;
+
+  if p_account_type = 'retailer' then
+    insert into public.user_roles (user_id, role) values (p_member, 'retailer') on conflict do nothing;
+  else
+    delete from public.user_roles where user_id = p_member and role = 'retailer';
+  end if;
+
+  perform public.kmd_audit(p_actor, 'ACCOUNT_TYPE_CHANGE', p_member, null, 'profiles', p_member::text,
+    jsonb_build_object('accountType', v_member.account_type),
+    jsonb_build_object('accountType', p_account_type), 'Account type changed', v_member.is_test);
+
+  return jsonb_build_object('status','UPDATED','accountType', p_account_type,
+    'reasonText','Account type updated to ' || p_account_type);
+end $$;
+
+-- ---------- grants ----------
+revoke all on function public.kmd_confirm_payment(uuid,uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_reject_payment(uuid,uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_set_order_status(uuid,text,uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_set_account_type(uuid,text,uuid) from public, anon, authenticated;
+
+grant execute on function public.kmd_confirm_payment(uuid,uuid,text) to service_role;
+grant execute on function public.kmd_reject_payment(uuid,uuid,text) to service_role;
+grant execute on function public.kmd_set_order_status(uuid,text,uuid,text) to service_role;
+grant execute on function public.kmd_set_account_type(uuid,text,uuid) to service_role;

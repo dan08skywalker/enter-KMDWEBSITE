@@ -1,0 +1,381 @@
+-- ============================================================
+-- KMD EMPIRE · migration 3 · orders, payment proofs, ledgers, redemptions, audit
+-- ============================================================
+
+create sequence if not exists public.kmd_order_seq start with 1001 increment by 1;
+create sequence if not exists public.kmd_point_txn_seq start with 1 increment by 1;
+create sequence if not exists public.kmd_loyalty_txn_seq start with 1 increment by 1;
+create sequence if not exists public.kmd_wallet_txn_seq start with 1 increment by 1;
+create sequence if not exists public.kmd_redemption_seq start with 1 increment by 1;
+
+-- ---------- orders -------------------------------------------
+create table if not exists public.orders (
+  id uuid primary key default gen_random_uuid(),
+  order_number text not null unique,
+  buyer_profile_id uuid not null references public.profiles(id),
+  buyer_member_code text not null,
+  total_amount numeric(14,2) not null default 0 check (total_amount >= 0),
+  status text not null default 'pending_payment'
+    check (status in ('pending_payment','proof_submitted','under_review','confirmed','rejected','cancelled')),
+  qualification_source text check (qualification_source in ('payment_confirmed','membership_activated')),
+  rewards_processed boolean not null default false,
+  rewards_processed_at timestamptz,
+  processed_by uuid,
+  notes text,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists orders_buyer_idx on public.orders (buyer_profile_id, created_at desc);
+create index if not exists orders_status_idx on public.orders (status);
+
+create trigger kmd_orders_touch before update on public.orders
+  for each row execute function public.kmd_touch_updated_at();
+
+create table if not exists public.order_items (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  product_id uuid not null references public.products(id),
+  sku text not null,
+  product_name text not null,
+  quantity int not null check (quantity > 0),
+  unit_price numeric(14,2) not null default 0 check (unit_price >= 0),
+  line_total numeric(14,2) not null default 0 check (line_total >= 0),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists order_items_order_idx on public.order_items (order_id);
+
+-- ---------- payment proofs -----------------------------------
+create table if not exists public.payment_proofs (
+  id uuid primary key default gen_random_uuid(),
+  order_id uuid not null references public.orders(id) on delete cascade,
+  member_id uuid not null references public.profiles(id),
+  member_code text,
+  method text not null check (method in ('gcash','bank_transfer','cash','other')),
+  reference_number text,
+  bank_name text,
+  account_name text,
+  amount numeric(14,2) not null default 0 check (amount >= 0),
+  proof_path text,
+  status text not null default 'under_review'
+    check (status in ('submitted','under_review','confirmed','rejected')),
+  submitted_at timestamptz not null default now(),
+  reviewed_by uuid,
+  reviewed_at timestamptz,
+  review_notes text,
+  is_test boolean not null default false
+);
+
+create index if not exists payment_proofs_order_idx on public.payment_proofs (order_id);
+
+-- ---------- point ledger (immutable) --------------------------
+create table if not exists public.point_ledger (
+  id uuid primary key default gen_random_uuid(),
+  transaction_id text not null unique,
+  order_id uuid references public.orders(id),
+  order_item_id uuid references public.order_items(id),
+  buyer_profile_id uuid references public.profiles(id),
+  buyer_member_code text,
+  beneficiary_id uuid not null references public.profiles(id),
+  beneficiary_member_code text not null,
+  sponsor_id uuid references public.profiles(id),
+  product_id uuid references public.products(id),
+  sku text,
+  product_name text,
+  quantity int,
+  unilevel_level int,
+  points_per_unit numeric(14,2),
+  total_points numeric(14,2) not null default 0,
+  reward_type text not null
+    check (reward_type in ('UNILEVEL_BONUS','REDEMPTION','SHOPPING_WALLET_CONVERSION','ADMIN_ADJUSTMENT','REVERSAL')),
+  transaction_type text not null
+    check (transaction_type in ('UNILEVEL_BONUS','REDEMPTION','SHOPPING_WALLET_CONVERSION','ADMIN_ADJUSTMENT','REVERSAL')),
+  direction text not null check (direction in ('CREDIT','DEBIT')),
+  status text not null default 'posted' check (status in ('pending','posted','reversed')),
+  trigger_event text,
+  created_at timestamptz not null default now(),
+  posted_at timestamptz,
+  processed_by uuid,
+  idempotency_key text unique,
+  note text,
+  is_test boolean not null default false
+);
+
+create index if not exists point_ledger_beneficiary_idx on public.point_ledger (beneficiary_id, created_at desc);
+create index if not exists point_ledger_order_idx on public.point_ledger (order_id);
+create index if not exists point_ledger_type_idx on public.point_ledger (transaction_type, status);
+
+-- ---------- loyalty credit ledger (separate) -----------------
+create table if not exists public.loyalty_credit_ledger (
+  id uuid primary key default gen_random_uuid(),
+  transaction_id text not null unique,
+  order_id uuid references public.orders(id),
+  order_item_id uuid references public.order_items(id),
+  buyer_profile_id uuid references public.profiles(id),
+  buyer_member_code text,
+  beneficiary_id uuid not null references public.profiles(id),
+  beneficiary_member_code text not null,
+  product_id uuid references public.products(id),
+  sku text,
+  product_name text,
+  quantity int,
+  credit_amount numeric(14,2) not null default 0,
+  direction text not null check (direction in ('CREDIT','DEBIT')),
+  status text not null default 'posted' check (status in ('pending','posted','reversed')),
+  trigger_event text,
+  created_at timestamptz not null default now(),
+  posted_at timestamptz,
+  processed_by uuid,
+  idempotency_key text unique,
+  note text,
+  is_test boolean not null default false
+);
+
+create index if not exists loyalty_ledger_beneficiary_idx on public.loyalty_credit_ledger (beneficiary_id, created_at desc);
+create index if not exists loyalty_ledger_order_idx on public.loyalty_credit_ledger (order_id);
+
+-- ---------- shopping wallet ledger --------------------------
+create table if not exists public.shopping_wallet_ledger (
+  id uuid primary key default gen_random_uuid(),
+  transaction_id text not null unique,
+  member_id uuid not null references public.profiles(id),
+  member_code text not null,
+  direction text not null check (direction in ('CREDIT','DEBIT')),
+  amount numeric(14,2) not null check (amount > 0),
+  status text not null default 'posted' check (status in ('pending','posted','reversed')),
+  source_point_ledger_id uuid references public.point_ledger(id),
+  trigger_event text,
+  created_at timestamptz not null default now(),
+  posted_at timestamptz,
+  processed_by uuid,
+  idempotency_key text unique,
+  note text,
+  is_test boolean not null default false
+);
+
+create index if not exists wallet_ledger_member_idx on public.shopping_wallet_ledger (member_id, created_at desc);
+
+-- ---------- redemptions --------------------------------------
+create table if not exists public.redemptions (
+  id uuid primary key default gen_random_uuid(),
+  redemption_number text not null unique,
+  member_id uuid not null references public.profiles(id),
+  member_code text not null,
+  redemption_type text not null check (redemption_type in ('PAYOUT_GCASH','PAYOUT_BANK','SHOPPING_WALLET')),
+  points numeric(14,2) not null check (points > 0),
+  peso_value numeric(14,2) not null default 0,
+  status text not null default 'pending' check (status in ('pending','approved','rejected','paid','cancelled')),
+  gcash_number text,
+  gcash_account_name text,
+  bank_name text,
+  bank_account_name text,
+  bank_account_number text,
+  other_bank_name text,
+  point_ledger_id uuid references public.point_ledger(id),
+  requested_at timestamptz not null default now(),
+  reviewed_by uuid,
+  reviewed_at timestamptz,
+  rejection_reason text,
+  is_test boolean not null default false
+);
+
+create index if not exists redemptions_member_idx on public.redemptions (member_id, requested_at desc);
+create index if not exists redemptions_status_idx on public.redemptions (status);
+
+-- ---------- audit log ----------------------------------------
+create table if not exists public.audit_logs (
+  id uuid primary key default gen_random_uuid(),
+  actor_id uuid,
+  actor_member_code text,
+  actor_username text,
+  action text not null,
+  target_member_id uuid,
+  target_member_code text,
+  order_id uuid,
+  entity text,
+  entity_id text,
+  previous_value jsonb,
+  new_value jsonb,
+  reason text,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists audit_logs_created_idx on public.audit_logs (created_at desc);
+create index if not exists audit_logs_action_idx on public.audit_logs (action);
+
+-- ---------- test results (required-test harness) -------------
+create table if not exists public.test_results (
+  id uuid primary key default gen_random_uuid(),
+  run_id uuid not null,
+  test_key text not null,
+  test_name text not null,
+  expected text,
+  actual text,
+  verdict text not null check (verdict in ('PASS','FAIL','BLOCKED')),
+  details jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists test_results_run_idx on public.test_results (run_id, test_key);
+
+-- ---------- RLS ----------------------------------------------
+alter table public.orders enable row level security;
+create policy orders_select_own on public.orders
+  for select to authenticated using (buyer_profile_id = auth.uid());
+create policy orders_select_admin on public.orders
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.order_items enable row level security;
+create policy order_items_select_own on public.order_items
+  for select to authenticated using (
+    exists (select 1 from public.orders o where o.id = order_id and o.buyer_profile_id = auth.uid())
+  );
+create policy order_items_select_admin on public.order_items
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.payment_proofs enable row level security;
+create policy payment_proofs_select_own on public.payment_proofs
+  for select to authenticated using (member_id = auth.uid());
+create policy payment_proofs_select_admin on public.payment_proofs
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.point_ledger enable row level security;
+create policy point_ledger_select_own on public.point_ledger
+  for select to authenticated using (beneficiary_id = auth.uid());
+create policy point_ledger_select_admin on public.point_ledger
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+-- no insert/update/delete policy: ledger rows are written only by security definer functions
+
+alter table public.loyalty_credit_ledger enable row level security;
+create policy loyalty_ledger_select_own on public.loyalty_credit_ledger
+  for select to authenticated using (beneficiary_id = auth.uid());
+create policy loyalty_ledger_select_admin on public.loyalty_credit_ledger
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.shopping_wallet_ledger enable row level security;
+create policy wallet_ledger_select_own on public.shopping_wallet_ledger
+  for select to authenticated using (member_id = auth.uid());
+create policy wallet_ledger_select_admin on public.shopping_wallet_ledger
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.redemptions enable row level security;
+create policy redemptions_select_own on public.redemptions
+  for select to authenticated using (member_id = auth.uid());
+create policy redemptions_select_admin on public.redemptions
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.audit_logs enable row level security;
+create policy audit_logs_select_admin on public.audit_logs
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+alter table public.test_results enable row level security;
+create policy test_results_select_admin on public.test_results
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+-- ---------- table grants -------------------------------------
+grant select on public.orders, public.order_items, public.payment_proofs,
+  public.point_ledger, public.loyalty_credit_ledger, public.shopping_wallet_ledger,
+  public.redemptions, public.audit_logs, public.test_results,
+  public.products, public.membership_packages, public.reward_configurations,
+  public.system_settings, public.user_roles, public.profiles,
+  public.sponsor_relationships
+  to authenticated;
+
+grant select on public.products, public.membership_packages to anon;
+
+-- ---------- order creation (server-side pricing) -------------
+create or replace function public.kmd_create_order(p_product_id uuid, p_quantity int, p_buyer uuid default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_buyer_id uuid;
+  v_buyer public.profiles%rowtype;
+  v_product public.products%rowtype;
+  v_order_id uuid;
+  v_order_number text;
+begin
+  v_buyer_id := coalesce(p_buyer, auth.uid());
+  if v_buyer_id is null then
+    raise exception 'KMD_UNAUTHENTICATED: you must be signed in to place an order';
+  end if;
+  if p_quantity is null or p_quantity < 1 then
+    raise exception 'KMD_VALIDATION: quantity must be at least 1';
+  end if;
+
+  select * into v_buyer from public.profiles where id = v_buyer_id;
+  if not found then
+    raise exception 'KMD_BUYER_MEMBER_RECORD_NOT_FOUND: member record not found';
+  end if;
+
+  select * into v_product from public.products where id = p_product_id;
+  if not found then
+    raise exception 'KMD_PRODUCT_NOT_FOUND: product ID % does not exist', p_product_id;
+  end if;
+  if not v_product.is_active then
+    raise exception 'KMD_PRODUCT_INACTIVE: % is not available', v_product.name;
+  end if;
+
+  v_order_number := 'KMD-ORDER-' || lpad(nextval('public.kmd_order_seq')::text, 6, '0');
+
+  insert into public.orders (order_number, buyer_profile_id, buyer_member_code, total_amount, status, is_test)
+  values (v_order_number, v_buyer.id, v_buyer.member_code, v_product.selling_price * p_quantity, 'pending_payment', v_buyer.is_test)
+  returning id into v_order_id;
+
+  insert into public.order_items (order_id, product_id, sku, product_name, quantity, unit_price, line_total)
+  values (v_order_id, v_product.id, v_product.sku, v_product.name, p_quantity, v_product.selling_price, v_product.selling_price * p_quantity);
+
+  return jsonb_build_object(
+    'orderId', v_order_id,
+    'orderNumber', v_order_number,
+    'status', 'pending_payment',
+    'sku', v_product.sku,
+    'productName', v_product.name,
+    'quantity', p_quantity,
+    'totalAmount', v_product.selling_price * p_quantity
+  );
+end $$;
+
+-- ---------- audit helper -------------------------------------
+create or replace function public.kmd_audit(
+  p_actor uuid,
+  p_action text,
+  p_target_member uuid default null,
+  p_order uuid default null,
+  p_entity text default null,
+  p_entity_id text default null,
+  p_previous jsonb default null,
+  p_new jsonb default null,
+  p_reason text default null,
+  p_is_test boolean default false
+) returns uuid
+language plpgsql security definer set search_path = public as $$
+declare
+  v_actor public.profiles%rowtype;
+  v_target public.profiles%rowtype;
+  v_id uuid;
+begin
+  select * into v_actor from public.profiles where id = p_actor;
+  if p_target_member is not null then
+    select * into v_target from public.profiles where id = p_target_member;
+  end if;
+
+  insert into public.audit_logs (
+    actor_id, actor_member_code, actor_username, action,
+    target_member_id, target_member_code, order_id, entity, entity_id,
+    previous_value, new_value, reason, is_test
+  ) values (
+    p_actor, v_actor.member_code, v_actor.username, p_action,
+    p_target_member, v_target.member_code, p_order, p_entity, p_entity_id,
+    p_previous, p_new, p_reason, coalesce(p_is_test, false)
+  ) returning id into v_id;
+
+  return v_id;
+end $$;
+
+-- ---------- grants -------------------------------------------
+revoke all on function public.kmd_create_order(uuid,int,uuid) from public, anon;
+grant execute on function public.kmd_create_order(uuid,int,uuid) to authenticated, service_role;
+revoke all on function public.kmd_audit(uuid,text,uuid,uuid,text,text,jsonb,jsonb,text,boolean) from public, anon, authenticated;
+grant execute on function public.kmd_audit(uuid,text,uuid,uuid,text,text,jsonb,jsonb,text,boolean) to service_role;
