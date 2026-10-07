@@ -1,0 +1,14 @@
+CREATE OR REPLACE FUNCTION public.kmd_is_super_admin(p_user_id uuid)
+RETURNS boolean
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  select exists (
+    select 1 from public.user_roles ur
+    where ur.user_id = p_user_id and ur.role = 'super_admin'
+  );
+$function$;
+
+REVOKE ALL ON FUNCTION public.kmd_is_super_admin(uuid) FROM public;
+GRANT EXECUTE ON FUNCTION public.kmd_is_super_admin(uuid) TO authenticated, service_role;

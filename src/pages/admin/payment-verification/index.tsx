@@ -1,21 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import { BadgeCheck, CheckCircle2, Eye, Loader2, XCircle } from "lucide-react";
+import { BadgeCheck, CheckCircle2, Eye, Filter, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/contexts/auth-context";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { invokeFunction } from "@/lib/kmd/invoke";
 import { PageHeader } from "@/components/kmd/page-header";
 import { StatCard } from "@/components/kmd/stat-card";
+import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
-import { ConfirmActionDialog } from "@/components/kmd/confirm-action-dialog";
+import { FilterBar, SearchInput, SelectFilter } from "@/components/kmd/filter-bar";
 import { EngineResultPanel } from "@/components/kmd/engine-result";
-import { MemberCell } from "@/components/kmd/member-cell";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Separator } from "@/components/ui/separator";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogContent,
@@ -23,23 +24,45 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatDateTime, formatPeso } from "@/lib/kmd/format";
-import { orderStatus, paymentMethod } from "@/lib/kmd/labels";
-import type { EngineRunResult, Order, OrderItem, PaymentProof, Profile } from "@/lib/kmd/types";
+import { formatDateTime, formatPeso, toNumber } from "@/lib/kmd/format";
+import { paymentMethod } from "@/lib/kmd/labels";
+import type {
+  EngineRunResult,
+  Order,
+  OrderItem,
+  PaymentProof,
+  Profile,
+} from "@/lib/kmd/types";
+import { approvalBucket, approvalDescriptor, buyerLabel, searchHaystack, type ApprovalRow } from "./approval";
+import { PaymentDetailsDialog } from "./payment-details-dialog";
 
-interface QueueItem {
-  order: Order;
-  items: OrderItem[];
-  proof: PaymentProof | null;
-  buyer: Profile | null;
-}
+type Tab = "pending" | "approved" | "rejected" | "all";
 
-export default function AdminPaymentVerification() {
+const TABS: Array<{ value: Tab; label: string }> = [
+  { value: "pending", label: "Pending" },
+  { value: "approved", label: "Approved" },
+  { value: "rejected", label: "Rejected" },
+  { value: "all", label: "All" },
+];
+
+/** Statuses in which a submitted payment exists and is worth reviewing. */
+const APPROVAL_STATUSES = ["proof_submitted", "under_review", "confirmed", "rejected"];
+const PAGE_LIMIT = 300;
+
+export default function AdminPaymentApprovals() {
+  const { isSuperAdmin } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [queue, setQueue] = useState<QueueItem[]>([]);
+  const [rows, setRows] = useState<ApprovalRow[]>([]);
+  const [capped, setCapped] = useState(false);
+  const [tab, setTab] = useState<Tab>("pending");
+  const [search, setSearch] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [productId, setProductId] = useState("all");
+  const [method, setMethod] = useState("all");
   const [includeTest, setIncludeTest] = useState(false);
+  const [selected, setSelected] = useState<ApprovalRow | null>(null);
   const [engineResult, setEngineResult] = useState<EngineRunResult | null>(null);
-  const [confirmedToday, setConfirmedToday] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -47,54 +70,91 @@ export default function AdminPaymentVerification() {
     let query = supabase
       .from("orders")
       .select("*")
-      .in("status", ["proof_submitted", "under_review"])
-      .order("created_at", { ascending: true });
+      .in("status", APPROVAL_STATUSES)
+      .order("created_at", { ascending: false })
+      .limit(PAGE_LIMIT);
     if (!includeTest) query = query.eq("is_test", false);
 
-    const startOfDay = new Date();
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const [orderResult, confirmedResult] = await Promise.all([
-      query,
-      supabase
-        .from("orders")
-        .select("*", { count: "exact", head: true })
-        .eq("status", "confirmed")
-        .gte("rewards_processed_at", startOfDay.toISOString()),
-    ]);
-
-    if (orderResult.error) {
-      console.error("Could not load the verification queue:", orderResult.error.message);
+    const { data, error } = await query;
+    if (error) {
+      console.error("Could not load the payment approvals:", error.message);
       setLoading(false);
       return;
     }
 
-    const orders = (orderResult.data ?? []) as unknown as Order[];
-    setConfirmedToday(confirmedResult.count ?? 0);
+    const orders = (data ?? []) as unknown as Order[];
+    setCapped(orders.length === PAGE_LIMIT);
 
-    const built: QueueItem[] = [];
-    for (const order of orders) {
-      const [itemResult, proofResult, buyerResult] = await Promise.all([
-        supabase.from("order_items").select("*").eq("order_id", order.id),
-        supabase
-          .from("payment_proofs")
-          .select("*")
-          .eq("order_id", order.id)
-          .order("submitted_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-        supabase.from("profiles").select("*").eq("id", order.buyer_profile_id).maybeSingle(),
-      ]);
+    const orderIds = orders.map((order) => order.id);
+    const buyerIds = Array.from(
+      new Set(orders.map((order) => order.buyer_profile_id).filter((id): id is string => Boolean(id))),
+    );
 
-      built.push({
-        order,
-        items: (itemResult.data ?? []) as unknown as OrderItem[],
-        proof: (proofResult.data as unknown as PaymentProof | null) ?? null,
-        buyer: (buyerResult.data as unknown as Profile | null) ?? null,
-      });
+    const [itemResult, proofResult, buyerResult, productResult, packageResult] = await Promise.all([
+      orderIds.length
+        ? supabase.from("order_items").select("*").in("order_id", orderIds).order("created_at")
+        : Promise.resolve({ data: [], error: null }),
+      orderIds.length
+        ? supabase
+            .from("payment_proofs")
+            .select("*")
+            .in("order_id", orderIds)
+            .order("submitted_at", { ascending: false })
+        : Promise.resolve({ data: [], error: null }),
+      buyerIds.length
+        ? supabase.from("profiles").select("*").in("id", buyerIds)
+        : Promise.resolve({ data: [], error: null }),
+      supabase.from("products").select("id, sku, name, product_type, is_active"),
+      supabase.from("membership_packages").select("id, package_code, name, product_id, is_active"),
+    ]);
+
+    for (const result of [itemResult, proofResult, buyerResult, productResult, packageResult]) {
+      if ("error" in result && result.error) {
+        console.error("Could not assemble the payment approvals:", result.error.message);
+      }
     }
 
-    setQueue(built);
+    const itemsByOrder = new Map<string, OrderItem[]>();
+    for (const item of (itemResult.data ?? []) as unknown as OrderItem[]) {
+      const list = itemsByOrder.get(item.order_id) ?? [];
+      list.push(item);
+      itemsByOrder.set(item.order_id, list);
+    }
+
+    // Only the most recent proof for an order is the one under review.
+    const proofByOrder = new Map<string, PaymentProof>();
+    for (const proof of (proofResult.data ?? []) as unknown as PaymentProof[]) {
+      if (!proofByOrder.has(proof.order_id)) proofByOrder.set(proof.order_id, proof);
+    }
+
+    const buyerById = new Map<string, Profile>();
+    for (const profile of (buyerResult.data ?? []) as unknown as Profile[]) {
+      buyerById.set(profile.id, profile);
+    }
+
+    const membershipProductIds = new Map<string, string>();
+    for (const pkg of (packageResult.data ?? []) as Array<{
+      name: string;
+      product_id: string;
+      is_active: boolean;
+    }>) {
+      if (pkg.is_active) membershipProductIds.set(String(pkg.product_id), pkg.name);
+    }
+
+    setRows(
+      orders.map((order) => {
+        const items = itemsByOrder.get(order.id) ?? [];
+        const membershipItem = items.find((item) => membershipProductIds.has(item.product_id));
+        return {
+          order,
+          items,
+          proof: proofByOrder.get(order.id) ?? null,
+          buyer: order.buyer_profile_id ? (buyerById.get(order.buyer_profile_id) ?? null) : null,
+          isMembership: Boolean(membershipItem),
+          membershipLabel: membershipItem ? (membershipProductIds.get(membershipItem.product_id) ?? null) : null,
+        };
+      }),
+    );
     setLoading(false);
   };
 
@@ -105,10 +165,10 @@ export default function AdminPaymentVerification() {
 
   useRealtimeRefresh(["orders", "payment_proofs"], () => void load());
 
-  const runAction = async (orderId: string, action: string, extra: Record<string, unknown>, message: string) => {
+  const runAction = async (row: ApprovalRow, action: string, extra: Record<string, unknown>, message: string) => {
     const outcome = await invokeFunction<{ ok?: boolean; result?: EngineRunResult }>("admin-actions", {
       action,
-      orderId,
+      orderId: row.order.id,
       ...extra,
     });
 
@@ -119,224 +179,309 @@ export default function AdminPaymentVerification() {
 
     const result = outcome.data?.result ?? null;
     if (result && typeof result.status === "string") setEngineResult(result);
-    toast.success(message);
+    if (result?.status === "ALREADY_PROCESSED") {
+      toast.info("This payment was already approved, so nothing was paid again");
+    } else {
+      toast.success(message);
+    }
+    setSelected(null);
     await load();
     return {};
   };
 
-  const viewProof = async (orderId: string) => {
-    const outcome = await invokeFunction<{ url?: string }>("admin-actions", { action: "proof_url", orderId });
-    if (!outcome.ok || !outcome.data?.url) {
-      toast.error("Could not open the payment proof", { description: outcome.error });
-      return;
-    }
-    window.open(outcome.data.url, "_blank", "noopener,noreferrer");
-  };
+  const counts = useMemo(() => {
+    const buckets = { pending: 0, approved: 0, rejected: 0 };
+    for (const row of rows) buckets[approvalBucket(row)] += 1;
+    return { ...buckets, all: rows.length };
+  }, [rows]);
 
-  const totalWaiting = queue.length;
-  const windowTotal = useMemo(
-    () => queue.reduce((sum, item) => sum + Number(item.order.total_amount ?? 0), 0),
-    [queue],
+  const pendingValue = useMemo(
+    () =>
+      rows
+        .filter((row) => approvalBucket(row) === "pending")
+        .reduce((sum, row) => sum + toNumber(row.proof?.amount ?? row.order.total_amount), 0),
+    [rows],
   );
+
+  const productOptions = useMemo(() => {
+    const options = new Map<string, string>();
+    for (const row of rows) {
+      for (const item of row.items) options.set(item.product_id, item.product_name);
+    }
+    return Array.from(options.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, [rows]);
+
+  const filtered = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    const from = fromDate ? new Date(`${fromDate}T00:00:00`).getTime() : null;
+    const to = toDate ? new Date(`${toDate}T23:59:59`).getTime() : null;
+
+    return rows.filter((row) => {
+      if (tab !== "all" && approvalBucket(row) !== tab) return false;
+      if (productId !== "all" && !row.items.some((item) => item.product_id === productId)) return false;
+      if (method !== "all" && row.proof?.method !== method) return false;
+
+      if (from !== null || to !== null) {
+        const created = new Date(row.order.created_at).getTime();
+        if (from !== null && created < from) return false;
+        if (to !== null && created > to) return false;
+      }
+
+      if (needle && !searchHaystack(row).includes(needle)) return false;
+      return true;
+    });
+  }, [rows, tab, productId, method, fromDate, toDate, search]);
+
+  const columns: Column<ApprovalRow>[] = [
+    {
+      key: "order",
+      header: "Order",
+      cell: (row) => (
+        <div className="flex flex-col gap-1">
+          <span className="font-mono text-xs font-semibold">{row.order.order_number}</span>
+          <span className="text-[11px] text-muted-foreground">{formatDateTime(row.order.created_at)}</span>
+        </div>
+      ),
+    },
+    {
+      key: "member",
+      header: "Member",
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5">
+          <span className="text-sm">{buyerLabel(row)}</span>
+          <span className="font-mono text-[11px] text-muted-foreground">
+            {row.buyer?.member_code ?? row.order.buyer_member_code ?? "guest"}
+            {row.buyer?.username ? ` \u00b7 ${row.buyer.username}` : ""}
+          </span>
+        </div>
+      ),
+    },
+    {
+      key: "purchase",
+      header: "Purchase",
+      cell: (row) => (
+        <div className="flex flex-col gap-1">
+          <span className="text-xs">
+            {row.items[0]?.product_name ?? "\u2014"}
+            {row.items.length > 1 ? ` +${row.items.length - 1} more` : ""}
+          </span>
+          {row.isMembership ? <StatusBadge label={row.membershipLabel ?? "Membership"} tone="gold" /> : null}
+        </div>
+      ),
+    },
+    {
+      key: "amount",
+      header: "Declared",
+      cell: (row) => (
+        <div className="flex flex-col gap-0.5 text-right">
+          <span className="text-sm font-semibold tabular-nums">
+            {formatPeso(row.proof?.amount ?? row.order.total_amount)}
+          </span>
+          {row.proof && toNumber(row.proof.amount) !== toNumber(row.order.total_amount) ? (
+            <span className="text-[11px] text-[hsl(var(--warning))]">
+              order {formatPeso(row.order.total_amount)}
+            </span>
+          ) : null}
+        </div>
+      ),
+      className: "text-right",
+    },
+    {
+      key: "method",
+      header: "Payment",
+      cell: (row) => {
+        const descriptor = row.proof ? paymentMethod(row.proof.method) : null;
+        return (
+          <div className="flex flex-col gap-1">
+            {descriptor ? <StatusBadge label={descriptor.label} tone={descriptor.tone} /> : null}
+            <span className="font-mono text-[11px] text-muted-foreground">
+              {row.proof?.reference_number ?? "no reference"}
+            </span>
+          </div>
+        );
+      },
+    },
+    {
+      key: "status",
+      header: "Approval",
+      cell: (row) => {
+        const descriptor = approvalDescriptor(row);
+        return (
+          <div className="flex flex-col gap-1">
+            <StatusBadge label={descriptor.label} tone={descriptor.tone} />
+            {row.order.is_test ? <StatusBadge label="Test" tone="platinum" /> : null}
+          </div>
+        );
+      },
+    },
+    {
+      key: "actions",
+      header: "",
+      className: "text-right",
+      cell: (row) => (
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={(event) => {
+            event.stopPropagation();
+            setSelected(row);
+          }}
+        >
+          <Eye className="h-3.5 w-3.5" />
+          View details
+        </Button>
+      ),
+    },
+  ];
 
   return (
     <>
       <PageHeader
-        title="Payment Verification"
-        description="Review submitted payment proofs. Confirming payment is the transition that triggers the reward engine exactly once."
+        title="Payment Approvals"
+        description="Every submitted payment, its proof and its approval state. Approving runs the Unilevel and Loyalty engines once; it can never pay twice."
       />
 
-      <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard label="Orders Waiting" value={String(totalWaiting)} icon={BadgeCheck} accent="gold" loading={loading} />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Pending Approval" value={String(counts.pending)} icon={BadgeCheck} accent="gold" loading={loading} />
+        <StatCard label="Approved" value={String(counts.approved)} icon={CheckCircle2} accent="success" loading={loading} />
+        <StatCard label="Rejected" value={String(counts.rejected)} icon={XCircle} accent="primary" loading={loading} />
         <StatCard
-          label="Confirmed Today"
-          value={String(confirmedToday)}
-          hint="Rewards processed"
-          icon={CheckCircle2}
-          accent="success"
+          label="Value Awaiting Approval"
+          value={formatPeso(pendingValue)}
+          hint="Declared amount on pending submissions"
+          accent="platinum"
           loading={loading}
         />
-        <StatCard label="Value Awaiting Review" value={formatPeso(windowTotal)} accent="primary" loading={loading} />
       </div>
 
-      <div className="kmd-panel border-dashed p-4">
-        <p className="text-xs text-muted-foreground">
-          Moving an order from <span className="font-semibold">under review</span> to{" "}
-          <span className="font-semibold">confirmed</span> runs the reward engine: it traces the buyer's
-          sponsor chain from Level 1 to Level 5, calculates each configured bonus and writes the ledger
-          entries in one transaction. If anything is misconfigured the confirmation itself is rolled back
-          and the exact reason is shown, so a partial payout can never be committed.
-        </p>
-      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Tabs value={tab} onValueChange={(value) => setTab(value as Tab)}>
+          <TabsList className="h-auto flex-wrap">
+            {TABS.map((entry) => (
+              <TabsTrigger key={entry.value} value={entry.value} className="gap-2">
+                {entry.label}
+                <span className="rounded-full bg-muted px-1.5 text-[11px] font-semibold text-muted-foreground">
+                  {counts[entry.value]}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
-      <div className="flex items-center gap-2">
-        <Switch id="verify-include-test" checked={includeTest} onCheckedChange={setIncludeTest} />
-        <Label htmlFor="verify-include-test" className="cursor-pointer text-xs">
-          Include test data
-        </Label>
-      </div>
-
-      {loading ? (
-        <div className="space-y-4">
-          {[0, 1].map((row) => (
-            <div key={row} className="kmd-panel p-5">
-              <Skeleton className="h-24 w-full" />
-            </div>
-          ))}
+        <div className="flex items-center gap-2">
+          <Switch id="approvals-include-test" checked={includeTest} onCheckedChange={setIncludeTest} />
+          <Label htmlFor="approvals-include-test" className="cursor-pointer text-xs">
+            Include test data
+          </Label>
         </div>
-      ) : queue.length === 0 ? (
-        <div className="kmd-panel">
-          <EmptyState
-            icon={BadgeCheck}
-            title="Nothing to verify"
-            description="No order is currently waiting for payment verification. Submitted proofs appear here automatically."
+      </div>
+
+      <FilterBar className="flex-wrap">
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search member name, member ID, username, order number or reference number"
+        />
+        <SelectFilter
+          value={productId}
+          onChange={setProductId}
+          allLabel="All products & packages"
+          options={productOptions}
+          className="sm:w-[220px]"
+        />
+        <SelectFilter
+          value={method}
+          onChange={setMethod}
+          allLabel="All payment methods"
+          options={[
+            { value: "gcash", label: "GCash" },
+            { value: "maya", label: "Maya" },
+            { value: "maya_bank", label: "Maya Bank Transfer" },
+            { value: "bank_transfer", label: "Bank Transfer" },
+            { value: "cash", label: "Cash" },
+            { value: "other", label: "Other" },
+          ]}
+          className="sm:w-[200px]"
+        />
+        <div className="flex items-center gap-2">
+          <Filter className="h-4 w-4 shrink-0 text-muted-foreground" />
+          <Input
+            type="date"
+            value={fromDate}
+            onChange={(event) => setFromDate(event.target.value)}
+            aria-label="Submitted on or after"
+            className="w-[150px]"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <Input
+            type="date"
+            value={toDate}
+            onChange={(event) => setToDate(event.target.value)}
+            aria-label="Submitted on or before"
+            className="w-[150px]"
           />
         </div>
-      ) : (
-        <div className="space-y-4">
-          {queue.map((item) => {
-            const status = orderStatus(item.order.status);
-            const proofDescriptor = item.proof ? paymentMethod(item.proof.method) : null;
+      </FilterBar>
 
-            return (
-              <div key={item.order.id} className="kmd-panel p-5">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-sm font-semibold">{item.order.order_number}</span>
-                      <StatusBadge label={status.label} tone={status.tone} />
-                      {item.order.is_test ? <StatusBadge label="Test" tone="platinum" /> : null}
-                    </div>
-                    {item.buyer ? <MemberCell profile={item.buyer} /> : null}
-                  </div>
-                  <div className="text-right">
-                    <p className="kmd-label">Declared amount</p>
-                    <p className="text-lg font-bold">{formatPeso(item.proof?.amount ?? item.order.total_amount)}</p>
-                  </div>
-                </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-muted-foreground">
+          Showing {filtered.length} of {rows.length} submitted payment{rows.length === 1 ? "" : "s"}
+          {capped ? ` (latest ${PAGE_LIMIT})` : ""}.
+        </p>
+        {(search || productId !== "all" || method !== "all" || fromDate || toDate) ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => {
+              setSearch("");
+              setProductId("all");
+              setMethod("all");
+              setFromDate("");
+              setToDate("");
+            }}
+          >
+            Clear filters
+          </Button>
+        ) : null}
+      </div>
 
-                <Separator className="my-4" />
+      <DataTable
+        columns={columns}
+        rows={filtered}
+        rowKey={(row) => row.order.id}
+        loading={loading}
+        onRowClick={(row) => setSelected(row)}
+        empty={
+          <EmptyState
+            icon={BadgeCheck}
+            title={rows.length === 0 ? "No payments submitted yet" : "Nothing matches these filters"}
+            description={
+              rows.length === 0
+                ? "A payment appears here the moment a buyer submits proof of payment."
+                : "Adjust or clear the filters to see the other submissions."
+            }
+          />
+        }
+      />
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="space-y-2 text-xs">
-                    <p className="kmd-label">Purchase</p>
-                    <ul className="space-y-1">
-                      {item.items.map((line) => (
-                        <li key={line.id} className="flex items-center justify-between">
-                          <span>
-                            {line.product_name}{" "}
-                            <span className="font-mono text-muted-foreground">{line.sku}</span>
-                          </span>
-                          <span className="tabular-nums">
-                            {line.quantity} x {formatPeso(line.unit_price)}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                    <p className="pt-1 text-muted-foreground">
-                      Submitted {formatDateTime(item.proof?.submitted_at)} &middot; order created{" "}
-                      {formatDateTime(item.order.created_at)}
-                    </p>
-                  </div>
-
-                  <div className="space-y-3">
-                    <div>
-                      <p className="kmd-label">Payment proof</p>
-                      {item.proof ? (
-                        <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
-                          <StatusBadge label={proofDescriptor?.label ?? "Unknown"} tone={proofDescriptor?.tone ?? "neutral"} />
-                          <span className="font-mono">{item.proof.reference_number ?? "no reference"}</span>
-                          {item.proof.bank_name ? <span>{item.proof.bank_name}</span> : null}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => void viewProof(item.order.id)}
-                            disabled={!item.proof.proof_path}
-                          >
-                            <Eye className="h-3.5 w-3.5" />
-                            {item.proof.proof_path ? "View proof" : "No file"}
-                          </Button>
-                        </div>
-                      ) : (
-                        <p className="mt-1 text-xs text-muted-foreground">No payment proof recorded.</p>
-                      )}
-                    </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      {item.order.status === "proof_submitted" ? (
-                        <ConfirmActionDialog
-                          trigger={
-                            <Button variant="outline" size="sm">
-                              <Loader2 className="h-3.5 w-3.5" />
-                              Mark under review
-                            </Button>
-                          }
-                          title={`Move ${item.order.order_number} to under review?`}
-                          description="The order remains unqualified, so no rewards are generated yet."
-                          confirmLabel="Mark under review"
-                          reasonRequired
-                          reasonLabel="Reason"
-                          onConfirm={(reason) =>
-                            runAction(
-                              item.order.id,
-                              "set_order_status",
-                              { status: "under_review", reason },
-                              "Order marked under review",
-                            )
-                          }
-                        />
-                      ) : null}
-
-                      <ConfirmActionDialog
-                        trigger={
-                          <Button size="sm">
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                            Confirm payment
-                          </Button>
-                        }
-                        title={`Confirm payment for ${item.order.order_number}?`}
-                        description="This runs the reward engine once: Level 1 to Level 5 are traced, each configured bonus is calculated and the ledger entries are posted in a single transaction. Confirming again returns 'already processed' and pays nothing extra."
-                        confirmLabel="Confirm and run the engine"
-                        reasonRequired
-                        reasonLabel="Reason for confirming"
-                        onConfirm={(reason) =>
-                          runAction(item.order.id, "confirm_payment", { reason }, "Payment confirmed")
-                        }
-                      />
-
-                      <ConfirmActionDialog
-                        trigger={
-                          <Button size="sm" variant="outline" className="text-destructive">
-                            <XCircle className="h-3.5 w-3.5" />
-                            Reject
-                          </Button>
-                        }
-                        title={`Reject payment for ${item.order.order_number}?`}
-                        description="The order is closed as rejected and no rewards are ever generated for it."
-                        confirmLabel="Reject payment"
-                        destructive
-                        reasonRequired
-                        reasonLabel="Reason for rejection"
-                        onConfirm={(reason) =>
-                          runAction(item.order.id, "reject_payment", { reason }, "Payment rejected")
-                        }
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+      <PaymentDetailsDialog
+        row={selected}
+        canDecide={isSuperAdmin}
+        onClose={() => setSelected(null)}
+        onApprove={(row) => runAction(row, "confirm_payment", { reason: "Payment approved" }, "Payment approved")}
+        onReject={(row) => runAction(row, "reject_payment", { reason: "Payment rejected" }, "Payment rejected")}
+        onMarkUnderReview={(row) =>
+          runAction(row, "set_order_status", { status: "under_review", reason: "Marked under review" }, "Marked under review")
+        }
+      />
 
       <Dialog open={engineResult !== null} onOpenChange={(open) => !open && setEngineResult(null)}>
         <DialogContent className="max-w-3xl">
           <DialogHeader>
             <DialogTitle>Reward engine result</DialogTitle>
-            <DialogDescription>
-              The literal response from the backend for this confirmation.
-            </DialogDescription>
+            <DialogDescription>The literal response from the backend for this approval.</DialogDescription>
           </DialogHeader>
           {engineResult ? <EngineResultPanel result={engineResult} /> : null}
         </DialogContent>

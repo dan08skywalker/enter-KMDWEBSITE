@@ -1,0 +1,121 @@
+CREATE OR REPLACE FUNCTION public.kmd_confirm_payment(p_order_id uuid, p_actor uuid DEFAULT NULL::uuid, p_qualification_source text DEFAULT 'payment_confirmed'::text)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+declare
+  v_order public.orders%rowtype;
+  v_result jsonb;
+  v_buyer public.profiles%rowtype;
+  v_package_id uuid;
+  v_package_name text;
+  v_membership jsonb := 'null'::jsonb;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','PURCHASE DB RECORD NOT FOUND for this order ID');
+  end if;
+
+  if v_order.status in ('cancelled','rejected') then
+    return jsonb_build_object('status','FAILED','reason','ORDER_NOT_CONFIRMABLE',
+      'reasonText','A ' || v_order.status || ' order cannot be confirmed');
+  end if;
+
+  if v_order.status = 'confirmed' and v_order.rewards_processed then
+    return jsonb_build_object('status','ALREADY_PROCESSED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','REWARD ALREADY PROCESSED FOR THIS TRANSACTION',
+      'orderNumber', v_order.order_number, 'processedAt', v_order.rewards_processed_at);
+  end if;
+
+  update public.payment_proofs
+    set status = 'confirmed', reviewed_by = p_actor, reviewed_at = now()
+    where order_id = p_order_id and status <> 'confirmed';
+
+  update public.orders
+    set status = 'confirmed',
+        qualification_source = coalesce(p_qualification_source, 'payment_confirmed')
+    where id = p_order_id;
+
+  insert into public.order_status_history (order_id, from_status, to_status, note, actor_id, is_test)
+  values (p_order_id, v_order.status, 'confirmed', 'Payment confirmed', p_actor, v_order.is_test);
+
+  perform public.kmd_audit(p_actor, 'PAYMENT_CONFIRMATION', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text,
+    jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status', 'confirmed'),
+    'Payment confirmed for ' || v_order.order_number, v_order.is_test);
+
+  -- Stock leaves the shelf only now that the purchase is verified.
+  perform public.kmd_stock_commit(p_order_id, p_actor);
+
+  if v_order.buyer_profile_id is null then
+    -- A guest purchase has no member buyer, so there is no sponsor chain to pay.
+    -- This is recorded explicitly rather than silently skipped.
+    update public.orders set rewards_processed = true, rewards_processed_at = now() where id = p_order_id;
+    perform public.kmd_audit(p_actor, 'REWARDS_NOT_APPLICABLE', null, p_order_id,
+      'orders', p_order_id::text, null, jsonb_build_object('customerType','guest'),
+      'Guest purchase: no member buyer, so the Unilevel distribution does not apply', v_order.is_test);
+
+    perform public.kmd_notify(v_order.buyer_profile_id, 'order.confirmed',
+      'Payment confirmed for ' || v_order.order_number,
+      'Thank you. We are preparing your order.', null,
+      jsonb_build_object('orderNumber', v_order.order_number));
+
+    return jsonb_build_object('status','CONFIRMED','reason','GUEST_PURCHASE_NO_REWARDS',
+      'reasonText','Payment confirmed. Guest purchase - no Unilevel rewards apply.',
+      'orderNumber', v_order.order_number, 'customerType','guest');
+  end if;
+
+  -- Membership package purchased in this order (if any). Activation always happens
+  -- inside the same transaction as the approval, so an approved membership payment
+  -- can never leave the buyer sitting at 'pending'.
+  select mp.id, mp.name
+    into v_package_id, v_package_name
+  from public.order_items oi
+  join public.products pr on pr.id = oi.product_id
+  join public.membership_packages mp on mp.product_id = pr.id and mp.is_active = true
+  where oi.order_id = p_order_id
+    and pr.product_type = 'membership'
+    and pr.is_active = true
+  order by oi.created_at
+  limit 1;
+
+  if v_package_id is not null then
+    select * into v_buyer from public.profiles where id = v_order.buyer_profile_id for update;
+    if found then
+      if v_buyer.account_status in ('pending','inactive') then
+        perform public.kmd_activate_member(v_buyer.id, p_actor, v_package_id,
+          'Membership activated on payment confirmation of ' || v_order.order_number);
+        v_membership := jsonb_build_object('activated', true, 'packageId', v_package_id, 'packageName', v_package_name);
+      else
+        -- The member is already active: only the purchased package is recorded, and
+        -- an account that is suspended is never silently revived by a payment.
+        if v_buyer.package_id is distinct from v_package_id then
+          update public.profiles set package_id = v_package_id where id = v_buyer.id;
+          perform public.kmd_audit(p_actor, 'MEMBERSHIP_ACTIVATION', v_buyer.id, p_order_id,
+            'profiles', v_buyer.id::text,
+            jsonb_build_object('packageId', v_buyer.package_id, 'accountStatus', v_buyer.account_status),
+            jsonb_build_object('packageId', v_package_id, 'accountStatus', v_buyer.account_status),
+            'Membership package set to ' || coalesce(v_package_name,'package') || ' on ' || v_order.order_number,
+            v_buyer.is_test);
+        end if;
+        v_membership := jsonb_build_object('activated', false, 'packageId', v_package_id,
+          'packageName', v_package_name, 'accountStatus', v_buyer.account_status);
+      end if;
+    end if;
+  end if;
+
+  v_result := public.kmd_process_qualified_purchase(p_order_id, p_actor);
+
+  perform public.kmd_notify(v_order.buyer_profile_id, 'order.confirmed',
+    'Payment confirmed for ' || v_order.order_number,
+    'Your payment has been verified and your rewards have been posted.',
+    '/app/orders', jsonb_build_object('orderNumber', v_order.order_number));
+
+  return v_result || jsonb_build_object('orderNumber', v_order.order_number,
+    'buyerMemberCode', v_order.buyer_member_code,
+    'stockCommitted', true,
+    'membership', v_membership);
+end $function$;

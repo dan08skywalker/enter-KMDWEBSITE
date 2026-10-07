@@ -1147,6 +1147,73 @@ Deno.serve(async (req) => {
       });
     }
 
+    // ================= TEST 14 - membership activation on approval =================
+    try {
+      const { data: trialPackage } = await svc
+        .from("membership_packages")
+        .select("id, package_code, name")
+        .eq("product_id", trial.id)
+        .maybeSingle();
+      const packageId = String(trialPackage?.id ?? "");
+
+      // Fixture: a registered member who has not been activated yet.
+      await svc
+        .from("profiles")
+        .update({ account_status: "pending", activation_date: null, package_id: null })
+        .eq("id", loner.id);
+
+      const order = await createOrder(svc, loner.id, trial.id, 1);
+      await submitProof(svc, order.orderId, loner.id, true);
+      const confirmed = await confirmPayment(svc, order.orderId, actorId);
+
+      const { data: activated } = await svc
+        .from("profiles")
+        .select("account_status, package_id, activation_date")
+        .eq("id", loner.id)
+        .maybeSingle();
+
+      const confirmedAgain = await confirmPayment(svc, order.orderId, actorId);
+
+      const pass =
+        (confirmed.result?.status === "PROCESSED" ||
+          confirmed.result?.status === "PROCESSED_NO_REWARDS") &&
+        (confirmed.result?.membership as Record<string, unknown> | undefined)?.activated === true &&
+        activated?.account_status === "active" &&
+        activated?.package_id === packageId &&
+        activated?.activation_date != null &&
+        confirmedAgain.result?.status === "ALREADY_PROCESSED";
+
+      // Fixture restored: the buyer returns to its plain test state.
+      await svc.from("profiles").update({ package_id: null }).eq("id", loner.id);
+
+      outcomes.push({
+        test_key: "test_14_membership_activation",
+        test_name:
+          "Required Test #14 - Approving a membership payment activates the member and can never do it twice",
+        expected:
+          "A pending member who buys a membership package becomes active with that package assigned in the same transaction as the payment approval. Approving the same payment again returns ALREADY_PROCESSED and changes nothing.",
+        actual: `confirm=${confirmed.result?.status ?? confirmed.error}, membershipActivated=${String((confirmed.result?.membership as Record<string, unknown> | undefined)?.activated)}, accountStatusAfter=${activated?.account_status}, packageAssigned=${activated?.package_id === packageId}, activationDateSet=${activated?.activation_date != null}, secondApproval=${confirmedAgain.result?.status ?? confirmedAgain.error}`,
+        verdict: pass ? "PASS" : "FAIL",
+        details: {
+          orderNumber: order.orderNumber,
+          expectedPackageId: packageId,
+          confirmed: confirmed.result,
+          confirmedAgain: confirmedAgain.result,
+          profileAfter: activated,
+        },
+      });
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_14_membership_activation",
+        test_name:
+          "Required Test #14 - Approving a membership payment activates the member and can never do it twice",
+        expected: "The buyer becomes active with the purchased package in the same transaction",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
     // ---- persist every outcome ----
     const rows = outcomes.map((outcome) => ({
       run_id: runId,

@@ -76,9 +76,19 @@ const AUDIT_ACTION: Record<string, Descriptor> = {
 
 const PAYMENT_METHOD: Record<string, Descriptor> = {
   gcash: { label: "GCash", tone: "info" },
+  maya: { label: "Maya", tone: "info" },
+  maya_bank: { label: "Maya Bank Transfer", tone: "platinum" },
   bank_transfer: { label: "Bank Transfer", tone: "platinum" },
   cash: { label: "Cash", tone: "neutral" },
   other: { label: "Other", tone: "neutral" },
+};
+
+/** Lifecycle state of a submitted payment proof. */
+const PAYMENT_STATUS: Record<string, Descriptor> = {
+  submitted: { label: "Pending", tone: "warning" },
+  under_review: { label: "Pending", tone: "warning" },
+  confirmed: { label: "Approved", tone: "success" },
+  rejected: { label: "Rejected", tone: "danger" },
 };
 
 const PACKAGE_TIER: Record<string, Descriptor> = {
@@ -101,6 +111,7 @@ export const transactionType = (key?: string | null) => pick(TRANSACTION_TYPE, k
 export const redemptionType = (key?: string | null) => pick(REDEMPTION_TYPE, key);
 export const auditAction = (key?: string | null) => pick(AUDIT_ACTION, key);
 export const paymentMethod = (key?: string | null) => pick(PAYMENT_METHOD, key);
+export const paymentStatus = (key?: string | null) => pick(PAYMENT_STATUS, key);
 export const packageTier = (key?: string | null) => pick(PACKAGE_TIER, key);
 
 export function levelLabel(level?: number | null): string {

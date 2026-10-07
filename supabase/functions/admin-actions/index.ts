@@ -66,6 +66,26 @@ Deno.serve(async (req) => {
     const action = String(body?.action ?? "");
     const reason = body?.reason ? String(body.reason) : null;
 
+    // Payment decisions release money and run the reward engine, so they are
+    // reserved for a super administrator. Like the role check above, this is a
+    // database fact re-read on every call - never a client claim.
+    if (action === "confirm_payment" || action === "reject_payment") {
+      const { data: isSuperAdmin, error: superError } = await svc.rpc("kmd_is_super_admin", {
+        p_user_id: actorId,
+      });
+      if (superError) {
+        console.error("admin-actions super administrator check failed:", superError.message);
+        return json({ error: "AUTHORIZATION_FAILED", message: "Could not verify your rights" }, 500);
+      }
+      if (isSuperAdmin !== true) {
+        console.warn("admin-actions denied payment decision for non-super-administrator", actorId);
+        return json(
+          { error: "FORBIDDEN", message: "Only a super administrator can approve or reject a payment" },
+          403,
+        );
+      }
+    }
+
     const run = async (fn: string, args: Record<string, unknown>) => {
       const { data, error } = await svc.rpc(fn, args);
       if (error) {
@@ -90,7 +110,6 @@ Deno.serve(async (req) => {
           p_actor: actorId,
           p_reason: reason ?? "Payment rejected",
         });
-
       case "set_order_status":
         return run("kmd_set_order_status", {
           p_order_id: String(body?.orderId ?? ""),

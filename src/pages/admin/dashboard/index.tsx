@@ -4,12 +4,17 @@ import {
   Activity,
   AlertTriangle,
   BadgeCheck,
+  CalendarClock,
+  CheckCircle2,
   Coins,
   Gift,
   Package,
+  Receipt,
   ShieldCheck,
   Sparkles,
+  UserRoundCheck,
   Users,
+  XCircle,
 } from "lucide-react";
 import {
   Bar,
@@ -27,10 +32,11 @@ import { PageHeader } from "@/components/kmd/page-header";
 import { StatCard } from "@/components/kmd/stat-card";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { EmptyState } from "@/components/kmd/empty-state";
+import { DataTable, type Column } from "@/components/kmd/data-table";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatDateTime, formatPoints, formatRelative, toNumber } from "@/lib/kmd/format";
-import { auditAction, orderStatus } from "@/lib/kmd/labels";
+import { formatDateTime, formatPeso, formatPoints, formatRelative, toNumber } from "@/lib/kmd/format";
+import { auditAction, orderStatus, paymentMethod, paymentStatus } from "@/lib/kmd/labels";
 import { UNILEVEL_LEVELS } from "@/lib/kmd/constants";
 import type { AuditLogRow, Order, PointLedgerRow } from "@/lib/kmd/types";
 
@@ -44,6 +50,11 @@ interface Counts {
   pointsAwarded: number;
   loyaltyAwarded: number;
   walletBalance: number;
+  pendingPayments: number;
+  approvedPayments: number;
+  rejectedPayments: number;
+  todayApprovedPayments: number;
+  pendingActivations: number;
 }
 
 const EMPTY_COUNTS: Counts = {
@@ -56,7 +67,23 @@ const EMPTY_COUNTS: Counts = {
   pointsAwarded: 0,
   loyaltyAwarded: 0,
   walletBalance: 0,
+  pendingPayments: 0,
+  approvedPayments: 0,
+  rejectedPayments: 0,
+  todayApprovedPayments: 0,
+  pendingActivations: 0,
 };
+
+/** One row of the recent-transactions ledger shown to the administrator. */
+interface RecentPayment {
+  id: string;
+  orderNumber: string;
+  memberCode: string | null;
+  amount: number;
+  method: string;
+  status: string;
+  submittedAt: string;
+}
 
 export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
@@ -64,9 +91,13 @@ export default function AdminDashboard() {
   const [needsAttention, setNeedsAttention] = useState<Order[]>([]);
   const [audit, setAudit] = useState<AuditLogRow[]>([]);
   const [levelRows, setLevelRows] = useState<PointLedgerRow[]>([]);
+  const [recentPayments, setRecentPayments] = useState<RecentPayment[]>([]);
 
   const load = async () => {
     setLoading(true);
+
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
 
     const [
       members,
@@ -81,6 +112,12 @@ export default function AdminDashboard() {
       attention,
       auditRows,
       ledger,
+      pendingPayments,
+      approvedPayments,
+      rejectedPayments,
+      todayApproved,
+      pendingActivations,
+      recentProofs,
     ] = await Promise.all([
       supabase.from("profiles").select("*", { count: "exact", head: true }),
       supabase.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "active"),
@@ -119,6 +156,23 @@ export default function AdminDashboard() {
         .eq("transaction_type", "UNILEVEL_BONUS")
         .eq("status", "posted")
         .limit(2000),
+      supabase
+        .from("payment_proofs")
+        .select("*", { count: "exact", head: true })
+        .in("status", ["submitted", "under_review"]),
+      supabase.from("payment_proofs").select("*", { count: "exact", head: true }).eq("status", "confirmed"),
+      supabase.from("payment_proofs").select("*", { count: "exact", head: true }).eq("status", "rejected"),
+      supabase
+        .from("payment_proofs")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "confirmed")
+        .gte("reviewed_at", startOfDay.toISOString()),
+      supabase.from("profiles").select("*", { count: "exact", head: true }).eq("account_status", "pending"),
+      supabase
+        .from("payment_proofs")
+        .select("id, order_id, member_code, method, amount, status, submitted_at")
+        .order("submitted_at", { ascending: false })
+        .limit(6),
     ]);
 
     const queryError =
@@ -144,7 +198,44 @@ export default function AdminDashboard() {
         (sum, row) => sum + toNumber(row.shopping_wallet_balance),
         0,
       ),
+      pendingPayments: pendingPayments.count ?? 0,
+      approvedPayments: approvedPayments.count ?? 0,
+      rejectedPayments: rejectedPayments.count ?? 0,
+      todayApprovedPayments: todayApproved.count ?? 0,
+      pendingActivations: pendingActivations.count ?? 0,
     });
+
+    const proofRows = (recentProofs.data ?? []) as Array<{
+      id: string;
+      order_id: string;
+      member_code: string | null;
+      method: string;
+      amount: number;
+      status: string;
+      submitted_at: string;
+    }>;
+    const proofOrderIds = Array.from(new Set(proofRows.map((proof) => proof.order_id)));
+    const orderNumbers = new Map<string, string>();
+    if (proofOrderIds.length > 0) {
+      const { data: proofOrders } = await supabase
+        .from("orders")
+        .select("id, order_number")
+        .in("id", proofOrderIds);
+      for (const order of (proofOrders ?? []) as Array<{ id: string; order_number: string }>) {
+        orderNumbers.set(order.id, order.order_number);
+      }
+    }
+    setRecentPayments(
+      proofRows.map((proof) => ({
+        id: proof.id,
+        orderNumber: orderNumbers.get(proof.order_id) ?? "\u2014",
+        memberCode: proof.member_code,
+        amount: toNumber(proof.amount),
+        method: proof.method,
+        status: proof.status,
+        submittedAt: proof.submitted_at,
+      })),
+    );
 
     setNeedsAttention((attention.data ?? []) as unknown as Order[]);
     setAudit((auditRows.data ?? []) as unknown as AuditLogRow[]);
@@ -156,7 +247,7 @@ export default function AdminDashboard() {
     void load();
   }, []);
 
-  useRealtimeRefresh(["orders", "point_ledger", "redemptions", "profiles"], () => void load());
+  useRealtimeRefresh(["orders", "point_ledger", "redemptions", "profiles", "payment_proofs"], () => void load());
 
   const chartData = useMemo(
     () =>
@@ -175,6 +266,42 @@ export default function AdminDashboard() {
     "hsl(var(--platinum))",
     "hsl(var(--success))",
     "hsl(var(--warning))",
+  ];
+
+  const paymentColumns: Column<RecentPayment>[] = [
+    {
+      key: "order",
+      header: "Order",
+      cell: (row) => <span className="font-mono text-xs font-semibold">{row.orderNumber}</span>,
+    },
+    {
+      key: "member",
+      header: "Member",
+      cell: (row) => <span className="font-mono text-xs text-muted-foreground">{row.memberCode ?? "guest"}</span>,
+    },
+    {
+      key: "amount",
+      header: "Amount",
+      cell: (row) => <span className="tabular-nums">{formatPeso(row.amount)}</span>,
+      className: "text-right",
+    },
+    {
+      key: "method",
+      header: "Method",
+      cell: (row) => {
+        const descriptor = paymentMethod(row.method);
+        return <StatusBadge label={descriptor.label} tone={descriptor.tone} />;
+      },
+    },
+    {
+      key: "status",
+      header: "Approval",
+      cell: (row) => {
+        const descriptor = paymentStatus(row.status);
+        return <StatusBadge label={descriptor.label} tone={descriptor.tone} />;
+      },
+    },
+    { key: "submitted", header: "Submitted", cell: (row) => formatRelative(row.submittedAt) },
   ];
 
   return (
@@ -205,6 +332,52 @@ export default function AdminDashboard() {
         <StatCard label="Unilevel Points Awarded" value={formatPoints(counts.pointsAwarded)} icon={Coins} accent="gold" loading={loading} />
         <StatCard label="Loyalty Credits Awarded" value={formatPoints(counts.loyaltyAwarded)} icon={Sparkles} accent="primary" loading={loading} />
         <StatCard label="Shopping Wallet Held" value={formatPoints(counts.walletBalance)} hint="Across all members" accent="platinum" loading={loading} />
+      </div>
+
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold">Payments</h2>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <StatCard
+            label="Pending Payments"
+            value={String(counts.pendingPayments)}
+            hint="Submitted proofs awaiting approval"
+            icon={BadgeCheck}
+            accent="gold"
+            loading={loading}
+          />
+          <StatCard
+            label="Approved Payments"
+            value={String(counts.approvedPayments)}
+            hint="Confirmed and paid out once"
+            icon={CheckCircle2}
+            accent="success"
+            loading={loading}
+          />
+          <StatCard
+            label="Rejected Payments"
+            value={String(counts.rejectedPayments)}
+            hint="Closed without rewards"
+            icon={XCircle}
+            accent="primary"
+            loading={loading}
+          />
+          <StatCard
+            label="Approved Today"
+            value={String(counts.todayApprovedPayments)}
+            hint="Approved since midnight"
+            icon={CalendarClock}
+            accent="platinum"
+            loading={loading}
+          />
+          <StatCard
+            label="Pending Membership Activations"
+            value={String(counts.pendingActivations)}
+            hint="Registered members not yet activated"
+            icon={UserRoundCheck}
+            accent="gold"
+            loading={loading}
+          />
+        </div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
@@ -322,6 +495,36 @@ export default function AdminDashboard() {
             })}
           </ul>
         )}
+      </div>
+
+      <div className="kmd-panel">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-5 py-4">
+          <div>
+            <h2 className="text-sm font-semibold">Recent transactions</h2>
+            <p className="mt-1 text-xs text-muted-foreground">
+              The latest payment submissions and where each one stands.
+            </p>
+          </div>
+          <Button asChild size="sm" variant="outline">
+            <Link to="/admin/payment-verification">
+              <Receipt className="h-3.5 w-3.5" />
+              Open Payment Approvals
+            </Link>
+          </Button>
+        </div>
+        <DataTable
+          columns={paymentColumns}
+          rows={recentPayments}
+          rowKey={(row) => row.id}
+          loading={loading}
+          empty={
+            <EmptyState
+              icon={Receipt}
+              title="No payment submissions yet"
+              description="Every submitted proof of payment appears here as soon as a buyer sends it."
+            />
+          }
+        />
       </div>
 
       <div className="kmd-panel p-5">

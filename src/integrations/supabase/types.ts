@@ -5171,6 +5171,10 @@ export type Database = {
         Args: { p_member: string; p_viewer: string }
         Returns: boolean
       }
+      kmd_is_super_admin: {
+        Args: { p_user_id: string }
+        Returns: boolean
+      }
       kmd_member_balances: {
         Args: { p_member: string }
         Returns: Json

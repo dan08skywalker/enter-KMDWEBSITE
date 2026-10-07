@@ -102,7 +102,7 @@ export const ADMIN_NAV: NavSection[] = [
     title: "Commerce",
     items: [
       { label: "Orders", path: "/admin/orders", icon: Package },
-      { label: "Payment Verification", path: "/admin/payment-verification", icon: BadgeCheck },
+      { label: "Payment Approvals", path: "/admin/payment-verification", icon: BadgeCheck },
       { label: "Catalogue", path: "/admin/products", icon: ShoppingBag },
       { label: "Inventory", path: "/admin/inventory", icon: Boxes },
       { label: "Delivery & Shipping", path: "/admin/delivery-zones", icon: Truck },

@@ -31,6 +31,7 @@ const CHAIN: ChainEntry[] = [
   { label: "Level 4 Reward", testKey: "test_1_qualification_timing", pendingConfiguration: true },
   { label: "Level 5 Reward", testKey: "test_1_qualification_timing", pendingConfiguration: true },
   { label: "Loyalty Credit", testKey: "test_6_loyalty_credit" },
+  { label: "Membership Activation", testKey: "test_14_membership_activation" },
   { label: "Point Ledger", testKey: "test_3_quantity" },
   { label: "Duplicate Protection", testKey: "test_2_duplicate_confirmation" },
   { label: "Balance", testKey: "test_6_loyalty_credit" },

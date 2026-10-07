@@ -61,7 +61,7 @@ import AdminRetailers from "./pages/admin/retailers";
 import AdminGenealogy from "./pages/admin/genealogy";
 import AdminOrders from "./pages/admin/orders";
 import AdminOrderDetail from "./pages/admin/orders/detail";
-import AdminPaymentVerification from "./pages/admin/payment-verification";
+import AdminPaymentApprovals from "./pages/admin/payment-verification";
 import AdminProducts from "./pages/admin/products";
 import AdminInventory from "./pages/admin/inventory";
 import AdminDeliveryZones from "./pages/admin/delivery-zones";
@@ -170,7 +170,7 @@ export const routers: Array<{
       { path: "genealogy", name: "admin-genealogy", element: <AdminGenealogy /> },
       { path: "orders", name: "admin-orders", element: <AdminOrders /> },
       { path: "orders/:orderId", name: "admin-order-detail", element: <AdminOrderDetail /> },
-      { path: "payment-verification", name: "admin-payment-verification", element: <AdminPaymentVerification /> },
+      { path: "payment-verification", name: "admin-payment-approvals", element: <AdminPaymentApprovals /> },
       { path: "products", name: "admin-products", element: <AdminProducts /> },
       { path: "inventory", name: "admin-inventory", element: <AdminInventory /> },
       { path: "delivery-zones", name: "admin-delivery-zones", element: <AdminDeliveryZones /> },

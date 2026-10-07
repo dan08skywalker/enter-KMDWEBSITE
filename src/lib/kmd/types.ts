@@ -19,6 +19,9 @@ export type OrderStatus =
 export type LedgerStatus = "pending" | "posted" | "reversed";
 export type LedgerDirection = "CREDIT" | "DEBIT";
 
+/** Lifecycle of a submitted payment proof (the payment approval state). */
+export type PaymentProofStatus = "submitted" | "under_review" | "confirmed" | "rejected";
+
 export type PointTransactionType =
   | "UNILEVEL_BONUS"
   | "REDEMPTION"
@@ -96,8 +99,11 @@ export interface RewardConfiguration {
 export interface Order {
   id: string;
   order_number: string;
-  buyer_profile_id: string;
-  buyer_member_code: string;
+  buyer_profile_id: string | null;
+  buyer_member_code: string | null;
+  customer_type: "member" | "guest";
+  guest_name: string | null;
+  guest_email: string | null;
   total_amount: number;
   status: OrderStatus;
   qualification_source: string | null;
@@ -123,18 +129,22 @@ export interface OrderItem {
 export interface PaymentProof {
   id: string;
   order_id: string;
-  member_id: string;
+  member_id: string | null;
   member_code: string | null;
-  method: "gcash" | "bank_transfer" | "cash" | "other";
+  method: "gcash" | "maya" | "maya_bank" | "bank_transfer" | "cash" | "other";
   reference_number: string | null;
   bank_name: string | null;
   account_name: string | null;
   amount: number;
   proof_path: string | null;
-  status: string;
+  status: PaymentProofStatus;
   submitted_at: string;
+  reviewed_by: string | null;
   reviewed_at: string | null;
   review_notes: string | null;
+  guest_name: string | null;
+  guest_email: string | null;
+  is_test: boolean;
 }
 
 export interface PointLedgerRow {
