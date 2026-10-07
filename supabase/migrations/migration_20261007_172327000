@@ -1,0 +1,28 @@
+-- ROOT RECOVERY: point the EXISTING root authentication account at the owner's real
+-- mailbox so a self-service password reset link can be delivered. Nothing is
+-- created: no new auth user, profile or role. The password hash, user id, roles,
+-- member code and every other row are left exactly as they are.
+update auth.users
+   set email = 'dan08.skywalker@gmail.com',
+       email_confirmed_at = coalesce(email_confirmed_at, now()),
+       email_change = '',
+       email_change_token_new = '',
+       email_change_token_current = '',
+       email_change_confirm_status = 0,
+       updated_at = now()
+ where id = 'ebd9ed15-8da5-4058-99c8-19c494540e0b'
+   and email = 'admin@kmdempire.test';
+
+-- identity_data.email is the source of truth; the identity email column is generated.
+update auth.identities
+   set identity_data = jsonb_set(identity_data, '{email}', to_jsonb('dan08.skywalker@gmail.com'::text), true),
+       updated_at = now()
+ where user_id = 'ebd9ed15-8da5-4058-99c8-19c494540e0b'
+   and provider = 'email';
+
+-- Sign-in resolves the username to this address, so it must move with the auth row
+-- or logging in as kmdadmin would look the account up under the old address.
+update public.profiles
+   set email = 'dan08.skywalker@gmail.com'
+ where id = 'ebd9ed15-8da5-4058-99c8-19c494540e0b'
+   and member_code = 'KMD-0000-0000-0000-0001';
