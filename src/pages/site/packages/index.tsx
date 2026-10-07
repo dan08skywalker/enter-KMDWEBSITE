@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { ShoppingBag } from "lucide-react";
 import { ArrowRight, Coins, CreditCard, ShieldCheck, Sparkles, Users } from "lucide-react";
 import { PageHero, Section, SiteShell } from "@/components/site/site-shell";
 import { FaqAccordion } from "@/components/site/faq-accordion";
@@ -7,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { useStore } from "@/contexts/store-context";
+import { useCart } from "@/contexts/cart-context";
+import { toast } from "@/hooks/use-toast";
 import { packageTier } from "@/lib/kmd/labels";
 import { FAQS } from "@/lib/site/content";
 
@@ -45,6 +48,24 @@ const MEMBER_BENEFITS = [
 
 export default function PackagesPage() {
   const { packages, loading } = useStore();
+  const cart = useCart();
+
+  const addPackage = (pkg: (typeof packages)[number]) => {
+    cart.add(
+      {
+        sku: pkg.sku,
+        name: pkg.name,
+        unitPrice: pkg.effectivePrice,
+        imageUrl: pkg.imageUrl,
+        isDigital: false,
+      },
+      1,
+    );
+    toast({
+      title: "Added to your bag",
+      description: `${pkg.name} is in your bag.`,
+    });
+  };
 
   return (
     <SiteShell>
@@ -68,7 +89,7 @@ export default function PackagesPage() {
 
       <Section
         title="Membership packages"
-        intro="Live from the catalogue. Package pricing is published here as soon as the administrator confirms it."
+        intro="Four ways to join, each with its own bundle of Dokudami Capsules. The promotional price is what you pay and the SRP is what it replaces."
       >
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -84,40 +105,65 @@ export default function PackagesPage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {packages.map((pkg) => {
               const tier = packageTier(pkg.tier);
+              const purchasable = pkg.effectivePrice > 0;
+              const detailHref = pkg.slug ? `/shop/${pkg.slug}` : "/shop";
               return (
-                <div key={pkg.id} className="kmd-panel flex flex-col p-5">
-                  <StatusBadge label={tier.label} tone={tier.tone} />
-                  <p className="mt-3 text-sm font-semibold">{pkg.name}</p>
-                  <p className="mt-1 flex-1 text-xs text-muted-foreground">{pkg.productName}</p>
-                  <p className="mt-2 font-mono text-[10px] text-muted-foreground">{pkg.sku}</p>
+                <div key={pkg.id} className="kmd-panel group flex flex-col overflow-hidden">
+                  <Link to={detailHref} className="relative block aspect-[16/9] overflow-hidden bg-secondary">
+                    {pkg.imageUrl ? (
+                      <img
+                        src={pkg.imageUrl}
+                        alt={pkg.name}
+                        loading="lazy"
+                        crossOrigin="anonymous"
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                      />
+                    ) : (
+                      <span className="flex h-full w-full items-center justify-center">
+                        <ShoppingBag className="h-8 w-8 text-muted-foreground" />
+                      </span>
+                    )}
+                    <span className="absolute left-3 top-3">
+                      <StatusBadge label={tier.label} tone={tier.tone} />
+                    </span>
+                  </Link>
 
-                  {pkg.effectivePrice > 0 ? (
-                    <PriceTag
-                      regularPrice={pkg.regularPrice}
-                      promoPrice={pkg.promoPrice}
-                      effectivePrice={pkg.effectivePrice}
+                  <div className="flex flex-1 flex-col p-5">
+                    <p className="text-sm font-semibold">{pkg.name}</p>
+                    <p className="mt-1 flex-1 text-xs text-muted-foreground">
+                      {pkg.eyebrow ?? pkg.productName}
+                    </p>
+                    <p className="mt-2 font-mono text-[10px] text-muted-foreground">{pkg.sku}</p>
+
+                    {purchasable ? (
+                      <PriceTag
+                        regularPrice={pkg.regularPrice}
+                        promoPrice={pkg.promoPrice}
+                        effectivePrice={pkg.effectivePrice}
+                        size="sm"
+                        className="mt-4"
+                      />
+                    ) : (
+                      <p className="mt-4 text-xs font-semibold text-warning">
+                        Pricing to be published
+                      </p>
+                    )}
+
+                    <Button
+                      type="button"
+                      variant={purchasable ? "brand" : "outline"}
                       size="sm"
                       className="mt-4"
-                    />
-                  ) : (
-                    <p className="mt-4 text-xs font-semibold text-warning">
-                      Pricing to be published
-                    </p>
-                  )}
-
-                  <Button
-                    asChild
-                    variant={pkg.effectivePrice > 0 ? "brand" : "outline"}
-                    size="sm"
-                    className="mt-4"
-                    disabled={pkg.effectivePrice <= 0}
-                  >
-                    {pkg.effectivePrice > 0 ? (
-                      <Link to={`/shop?q=${encodeURIComponent(pkg.name)}`}>Choose this package</Link>
-                    ) : (
-                      <span>Awaiting pricing</span>
-                    )}
-                  </Button>
+                      disabled={!purchasable}
+                      onClick={() => addPackage(pkg)}
+                    >
+                      <ShoppingBag className="h-3.5 w-3.5" />
+                      {purchasable ? "Add to bag" : "Awaiting pricing"}
+                    </Button>
+                    <Button asChild variant="ghost" size="sm" className="mt-1 text-accent">
+                      <Link to={detailHref}>See what is included</Link>
+                    </Button>
+                  </div>
                 </div>
               );
             })}

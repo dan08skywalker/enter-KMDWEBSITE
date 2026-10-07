@@ -460,26 +460,47 @@ export default function HomePage() {
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {packages.map((pkg) => {
               const tier = packageTier(pkg.tier);
+              const detailHref = pkg.slug ? `/shop/${pkg.slug}` : "/packages";
               return (
-                <div key={pkg.id} className="kmd-panel flex flex-col p-5">
-                  <StatusBadge label={tier.label} tone={tier.tone} />
-                  <p className="mt-3 text-sm font-semibold">{pkg.name}</p>
-                  <p className="mt-1 flex-1 text-xs text-muted-foreground">{pkg.productName}</p>
-                  <p className="mt-2 font-mono text-[10px] text-muted-foreground">{pkg.sku}</p>
-                  {pkg.effectivePrice > 0 ? (
-                    <PriceTag
-                      regularPrice={pkg.regularPrice}
-                      promoPrice={pkg.promoPrice}
-                      effectivePrice={pkg.effectivePrice}
-                      size="sm"
-                      className="mt-3"
-                    />
-                  ) : (
-                    <p className="mt-3 text-xs font-semibold text-warning">
-                      {t("home.membership.pricePending")}
-                    </p>
-                  )}
-                </div>
+                <Link
+                  key={pkg.id}
+                  to={detailHref}
+                  className="kmd-panel group flex flex-col overflow-hidden transition-shadow hover:shadow-[var(--shadow-elegant)]"
+                >
+                  <span className="relative block aspect-[16/9] overflow-hidden bg-secondary">
+                    {pkg.imageUrl ? (
+                      <img
+                        src={pkg.imageUrl}
+                        alt={pkg.name}
+                        loading="lazy"
+                        crossOrigin="anonymous"
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]"
+                      />
+                    ) : null}
+                    <span className="absolute left-3 top-3">
+                      <StatusBadge label={tier.label} tone={tier.tone} />
+                    </span>
+                  </span>
+                  <span className="flex flex-1 flex-col p-4">
+                    <span className="text-sm font-semibold">{pkg.name}</span>
+                    <span className="mt-1 flex-1 text-xs text-muted-foreground">
+                      {pkg.eyebrow ?? pkg.productName}
+                    </span>
+                    {pkg.effectivePrice > 0 ? (
+                      <PriceTag
+                        regularPrice={pkg.regularPrice}
+                        promoPrice={pkg.promoPrice}
+                        effectivePrice={pkg.effectivePrice}
+                        size="sm"
+                        className="mt-3"
+                      />
+                    ) : (
+                      <span className="mt-3 text-xs font-semibold text-warning">
+                        {t("home.membership.pricePending")}
+                      </span>
+                    )}
+                  </span>
+                </Link>
               );
             })}
           </div>

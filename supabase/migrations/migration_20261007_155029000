@@ -1,0 +1,69 @@
+-- The membership bundles are priced now, so the storefront has to be able to show and
+-- sell them: they join the sellable product list, and the package payload carries the
+-- artwork so the packages page can render it.
+create or replace function public.kmd_storefront_catalog()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_object(
+    'products', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', p.id, 'slug', p.slug, 'sku', p.sku, 'productCode', p.product_code,
+        'name', p.name, 'brand', p.brand, 'category', p.category,
+        'productType', p.product_type, 'eyebrow', p.short_description,
+        'description', p.description, 'disclaimer', p.disclaimer,
+        'imageUrl', p.image_url, 'gallery', p.gallery,
+        'regularPrice', p.regular_price, 'promoPrice', p.promo_price,
+        'effectivePrice', p.selling_price, 'isDigital', p.is_digital,
+        'tracksInventory', p.track_inventory,
+        'availableQuantity', case
+          when p.is_digital then null
+          when coalesce(i.is_unlimited,false) then null
+          when i.product_id is null then 0
+          when i.quantity_on_hand - i.reserved_quantity < 0 then 0
+          else i.quantity_on_hand - i.reserved_quantity end,
+        'inStock', case
+          when p.is_digital then true
+          when coalesce(i.is_unlimited,false) then true
+          else coalesce(i.quantity_on_hand - i.reserved_quantity, 0) > 0 end,
+        'lowStock', case
+          when p.is_digital then false
+          when coalesce(i.is_unlimited,false) then false
+          else coalesce(i.quantity_on_hand - i.reserved_quantity, 0) > 0
+               and coalesce(i.quantity_on_hand - i.reserved_quantity, 0) <= coalesce(i.low_stock_threshold, 5) end
+      ) order by p.sort_order, p.name)
+      from public.products p
+      left join public.inventory i on i.product_id = p.id
+      where p.is_active and p.product_type in ('retail','reorder','digital','membership','bundle')
+    ), '[]'::jsonb),
+    'packages', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', mp.id, 'code', mp.package_code, 'name', mp.name, 'tier', mp.tier,
+        'productName', p.name, 'sku', p.sku, 'slug', p.slug,
+        'imageUrl', p.image_url, 'gallery', p.gallery,
+        'regularPrice', p.regular_price, 'promoPrice', p.promo_price,
+        'effectivePrice', p.selling_price,
+        'eyebrow', p.short_description, 'description', p.description
+      ) order by p.sort_order, mp.package_code)
+      from public.membership_packages mp
+      join public.products p on p.id = mp.product_id
+      where mp.is_active and p.is_active
+    ), '[]'::jsonb),
+    'deliveryZones', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', z.id, 'name', z.name, 'coverage', z.coverage,
+        'shippingFee', z.shipping_fee, 'freeShippingThreshold', z.free_shipping_threshold,
+        'estimatedDaysMin', z.estimated_days_min, 'estimatedDaysMax', z.estimated_days_max,
+        'isConfigured', z.is_configured
+      ) order by z.sort_order, z.name)
+      from public.delivery_zones z where z.is_active
+    ), '[]'::jsonb),
+    'paymentAccounts', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'id', a.id, 'method', a.method, 'label', a.label, 'bankName', a.bank_name,
+        'accountName', a.account_name, 'accountNumber', a.account_number,
+        'qrImageUrl', a.qr_image_url
+      ) order by a.sort_order, a.id)
+      from public.payment_accounts a where a.is_active and a.is_verified
+    ), '[]'::jsonb),
+    'settings', public.kmd_settings_public()
+  );
+$$;

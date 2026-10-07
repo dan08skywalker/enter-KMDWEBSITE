@@ -1,0 +1,63 @@
+-- Membership packages: supplied artwork, and the prices published on that artwork.
+-- Until now these four products carried a selling price of zero, which correctly made
+-- them unbuyable; the images the owner supplied state the prices, so they are now set
+-- from those images rather than invented.
+--   Trial    : ₱1,980 promo, no SRP shown on the artwork
+--   Classic  : 2 bottles of Dokudami — ₱3,800 (SRP ₱6,000)
+--   Gold     : 4 bottles of Dokudami — ₱7,800 (SRP ₱12,000)
+--   Platinum : 30 bottles of Dokudami — ₱56,000 (SRP ₱90,000)
+
+update public.products set
+  slug = 'trial-pack-bundle',
+  category = 'Membership Bundle',
+  brand = 'GreenChoyce International',
+  image_url = 'https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/34362c82.jpeg',
+  gallery = '["https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/34362c82.jpeg"]'::jsonb,
+  short_description = 'Trial Promo Pack — 1 bottle of Dokudami Capsules.',
+  description = 'The Trial Promo Pack contains 1 bottle of Dokudami Capsules. Free shipping nationwide with no minimum purchase, and a product discount on your next reorder as a valued customer.',
+  promo_price = 1980.00,
+  sort_order = 10,
+  disclaimer = 'Dokudami Capsules are a food supplement. They are not intended to diagnose, treat, cure or prevent any disease. Individual results may vary.'
+where sku = 'KMD-TRIAL-001';
+
+update public.products set
+  slug = 'classic-loyalty-card-bundle',
+  category = 'Membership Bundle',
+  brand = 'GreenChoyce International',
+  image_url = 'https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/57157a34.jpeg',
+  gallery = '["https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/57157a34.jpeg"]'::jsonb,
+  short_description = 'Classic Loyalty Card — Bundle A: 2 bottles of Dokudami Capsules.',
+  description = 'The Classic Loyalty Card is the perfect start to a healthier and wealthier you: health support, natural ingredients, premium quality and loyalty rewards. Bundle A includes 2 bottles of Dokudami Capsules. Earn points, enjoy rewards, live better.',
+  regular_price = 6000.00,
+  promo_price = 3800.00,
+  sort_order = 11,
+  disclaimer = 'Dokudami Capsules are a food supplement. They are not intended to diagnose, treat, cure or prevent any disease. Individual results may vary.'
+where sku = 'KMD-CLASSIC-001';
+
+update public.products set
+  slug = 'gold-loyalty-card-bundle',
+  category = 'Membership Bundle',
+  brand = 'GreenChoyce International',
+  image_url = 'https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/beb8648a.jpeg',
+  gallery = '["https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/beb8648a.jpeg"]'::jsonb,
+  short_description = 'Gold Loyalty Card — Bundle B: 4 bottles of Dokudami Capsules.',
+  description = 'The Gold Loyalty Card brings more rewards and more opportunities: points and exclusive rewards, greater benefits to grow your future, premium quality products you can trust, and a better life for a healthier, happier you. Bundle B includes 4 bottles of Dokudami Capsules.',
+  regular_price = 12000.00,
+  promo_price = 7800.00,
+  sort_order = 12,
+  disclaimer = 'Dokudami Capsules are a food supplement. They are not intended to diagnose, treat, cure or prevent any disease. Individual results may vary.'
+where sku = 'KMD-GOLD-001';
+
+update public.products set
+  slug = 'platinum-loyalty-card-bundle',
+  category = 'Membership Bundle',
+  brand = 'GreenChoyce International',
+  image_url = 'https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/e4f320f6.jpeg',
+  gallery = '["https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/e4f320f6.jpeg"]'::jsonb,
+  short_description = 'Platinum Loyalty Card — Bundle C: 30 bottles of Dokudami Capsules.',
+  description = 'The Platinum Loyalty Card is greater benefits and greater impact: premium discounts on every purchase, reward points, priority access to updates and special offers, and dedicated VIP support. Bundle C includes 30 bottles of Dokudami Capsules.',
+  regular_price = 90000.00,
+  promo_price = 56000.00,
+  sort_order = 13,
+  disclaimer = 'Dokudami Capsules are a food supplement. They are not intended to diagnose, treat, cure or prevent any disease. Individual results may vary.'
+where sku = 'KMD-PLATINUM-001';

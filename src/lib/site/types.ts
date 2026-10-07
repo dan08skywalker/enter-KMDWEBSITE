@@ -32,9 +32,13 @@ export interface StorePackage {
   tier: "trial" | "classic" | "gold" | "platinum" | string;
   productName: string;
   sku: string;
+  slug: string | null;
+  imageUrl: string | null;
+  gallery: string[] | null;
   regularPrice: number | null;
   promoPrice: number | null;
   effectivePrice: number;
+  eyebrow: string | null;
   description: string | null;
 }
 
