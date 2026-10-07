@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createBrowserRouter, RouterProvider } from "react-router-dom";
 import { AuthProvider } from "@/contexts/auth-context";
+import { StoreProvider } from "@/contexts/store-context";
+import { CartProvider } from "@/contexts/cart-context";
 import { routers } from "./router";
 
 const queryClient = new QueryClient({
@@ -20,13 +22,19 @@ const router = createBrowserRouter(routers);
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <RouterProvider router={router} />
-        </TooltipProvider>
-      </AuthProvider>
+      {/* The storefront catalogue and the shopping bag are read by the public
+          header, so both providers sit above the router. */}
+      <StoreProvider>
+        <CartProvider>
+          <AuthProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <RouterProvider router={router} />
+            </TooltipProvider>
+          </AuthProvider>
+        </CartProvider>
+      </StoreProvider>
     </QueryClientProvider>
   );
 };

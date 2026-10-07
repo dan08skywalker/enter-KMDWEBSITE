@@ -179,6 +179,115 @@ async function updateRewardConfig(
   if (error) throw new Error(`reward configuration update failed: ${error.message}`);
 }
 
+// ---- helpers for the storefront and reward-matrix tests ----
+
+async function inventoryByProduct(svc: Svc, productId: string) {
+  const { data, error } = await svc
+    .from("inventory")
+    .select("quantity_on_hand, reserved_quantity, low_stock_threshold, is_unlimited")
+    .eq("product_id", productId)
+    .maybeSingle();
+  if (error) throw new Error(`inventory lookup failed: ${error.message}`);
+  return data;
+}
+
+async function setStock(svc: Svc, productId: string, actorId: string, quantity: number) {
+  const { data, error } = await svc.rpc("kmd_admin_set_stock", {
+    p_actor: actorId,
+    p_product_id: productId,
+    p_quantity: quantity,
+    p_note: "Required test run - temporary stock",
+  });
+  if (error) throw new Error(`set_stock failed: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
+async function checkoutPlace(svc: Svc, payload: Record<string, unknown>) {
+  const { data, error } = await svc.rpc("kmd_checkout_place_order", { p_payload: payload });
+  if (error) return { error: error.message, result: null as Record<string, unknown> | null };
+  return { error: null, result: data as Record<string, unknown> };
+}
+
+async function cancelOrder(svc: Svc, orderId: string, actorId: string) {
+  if (!orderId) return;
+  await svc.rpc("kmd_set_order_status", {
+    p_order_id: orderId,
+    p_status: "cancelled",
+    p_actor: actorId,
+    p_reason: "Required test run - releasing the reservation",
+  });
+}
+
+/**
+ * Puts one product back to a known stock state before a stock test runs.
+ *
+ * The suite is re-runnable: a previous run may have left a checkout holding a
+ * reservation, and a held reservation legitimately blocks a stock reset. Every
+ * held reservation for this product is released first, and the counter is then
+ * cleared as a test fixture so the assertions start from a fixed baseline.
+ */
+async function resetStockState(svc: Svc, productId: string, actorId: string) {
+  const { data: held } = await svc
+    .from("stock_reservations")
+    .select("id, order_id")
+    .eq("product_id", productId)
+    .eq("status", "held");
+
+  for (const row of held ?? []) {
+    await cancelOrder(svc, String(row.order_id), actorId);
+  }
+
+  await svc.from("inventory").update({ reserved_quantity: 0 }).eq("product_id", productId);
+}
+
+async function rewardConfigBySku(svc: Svc, sku: string) {
+  const product = await productBySku(svc, sku);
+  const { data, error } = await svc
+    .from("reward_configurations")
+    .select("*")
+    .eq("product_id", product.id)
+    .maybeSingle();
+  if (error) throw new Error(`reward configuration lookup failed: ${error.message}`);
+  return { productId: product.id, config: data as Record<string, unknown> | null };
+}
+
+async function orderRow(svc: Svc, orderId: string) {
+  const { data, error } = await svc
+    .from("orders")
+    .select("id, order_number, status, customer_type, subtotal, shipping_fee, total_amount, is_shipping_quoted, rewards_processed, buyer_profile_id, guest_email, fulfillment_status")
+    .eq("id", orderId)
+    .maybeSingle();
+  if (error) throw new Error(`order lookup failed: ${error.message}`);
+  return data as Record<string, unknown> | null;
+}
+
+async function orderItemRows(svc: Svc, orderId: string) {
+  const { data, error } = await svc
+    .from("order_items")
+    .select("sku, quantity, unit_price, line_total")
+    .eq("order_id", orderId);
+  if (error) throw new Error(`order item lookup failed: ${error.message}`);
+  return (data ?? []) as Array<Record<string, unknown>>;
+}
+
+async function stockReservationRows(svc: Svc, orderId: string) {
+  const { data, error } = await svc
+    .from("stock_reservations")
+    .select("id, product_id, quantity, status")
+    .eq("order_id", orderId);
+  if (error) throw new Error(`reservation lookup failed: ${error.message}`);
+  return (data ?? []) as Array<Record<string, unknown>>;
+}
+
+async function saveZone(svc: Svc, actorId: string, payload: Record<string, unknown>) {
+  const { data, error } = await svc.rpc("kmd_admin_upsert_delivery_zone", {
+    p_actor: actorId,
+    p_payload: payload,
+  });
+  if (error) throw new Error(`save_delivery_zone failed: ${error.message}`);
+  return data as Record<string, unknown>;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -483,23 +592,38 @@ Deno.serve(async (req) => {
       const loyaltyDelta = Number(after.loyaltyCredits) - Number(before.loyaltyCredits);
       const pointsDelta = Number(after.unilevelPoints) - Number(before.unilevelPoints);
 
-      // The Level 1 sponsor receives the 150 Level 1 bonus; the 20 Level 2 bonus
-      // belongs to their own upline, so only 150 lands on this member's balance.
+      // With the complete matrix in force a Trial purchase pays all five levels
+      // (150/20/10/5/5). Only the 150 Level 1 value belongs to this member, so the
+      // other four rows are attributed to their own beneficiaries.
+      const byLevel = new Map<number, number>();
+      for (const row of points) {
+        byLevel.set(Number(row.unilevel_level), Number(row.total_points));
+      }
+      const matrixPaid =
+        points.length === 5 &&
+        byLevel.get(1) === 150 &&
+        byLevel.get(2) === 20 &&
+        byLevel.get(3) === 10 &&
+        byLevel.get(4) === 5 &&
+        byLevel.get(5) === 5;
+
       const pass =
         loyalty.length === 1 &&
         Number(loyalty[0].credit_amount) === loyaltyAmount &&
         loyalty[0].beneficiary_member_code === l1.member_code &&
         loyaltyDelta === loyaltyAmount &&
-        points.length === 2 &&
+        matrixPaid &&
         pointsDelta === 150 &&
-        points.every((row) => row.transaction_type === "UNILEVEL_BONUS");
+        points.every((row) => row.transaction_type === "UNILEVEL_BONUS") &&
+        // The loyalty credit must never appear in the unilevel ledger.
+        points.every((row) => Number(row.total_points) !== loyaltyAmount);
 
       outcomes.push({
         test_key: "test_6_loyalty_credit",
         test_name: "Required Test #6 - A temporary Loyalty Credit posts to its own ledger and balance",
         expected:
-          "Loyalty ledger row of 25 for the Level 1 sponsor, loyalty balance +25, and a separate unilevel ledger (+150 to Level 1, +20 to Level 2) that does not include the loyalty credit",
-        actual: `loyaltyRows=${loyalty.length}, loyaltyAmount=${loyalty[0]?.credit_amount ?? "none"}, loyaltyBalanceDelta=${loyaltyDelta}, unilevelRows=${points.length}, unilevelBalanceDelta=${pointsDelta}`,
+          "Loyalty ledger row of 25 for the Level 1 sponsor and a loyalty balance of +25, while the unilevel ledger separately pays 150/20/10/5/5 across the five levels and never contains the loyalty credit",
+        actual: `loyaltyRows=${loyalty.length}, loyaltyAmount=${loyalty[0]?.credit_amount ?? "none"}, loyaltyBalanceDelta=${loyaltyDelta}, unilevelRows=${points.length}, levels=${JSON.stringify([...byLevel.entries()])}, unilevelBalanceDelta=${pointsDelta}`,
         verdict: pass ? "PASS" : "FAIL",
         details: { orderNumber: order.orderNumber, loyaltyRows: loyalty, pointRows: points, before, after },
       });
@@ -575,6 +699,448 @@ Deno.serve(async (req) => {
         test_key: "test_7_redemption_limits",
         test_name: "Required Test #7 - A redemption above the available balance is rejected",
         expected: "Over-balance redemption rejected, in-balance redemption accepted",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
+    // ================= TEST 8 - authoritative reward matrix =================
+    try {
+      const dok = await rewardConfigBySku(svc, "KMD-DOKUDAMI-001");
+      const classic = await rewardConfigBySku(svc, "KMD-CLASSIC-001");
+      const gold = await rewardConfigBySku(svc, "KMD-GOLD-001");
+      const platinum = await rewardConfigBySku(svc, "KMD-PLATINUM-001");
+
+      const matches = (
+        config: Record<string, unknown> | null,
+        expected: number[],
+        loyalty: number,
+      ) =>
+        !!config &&
+        Number(config.level1_points) === expected[0] &&
+        Number(config.level2_points) === expected[1] &&
+        Number(config.level3_points) === expected[2] &&
+        Number(config.level4_points) === expected[3] &&
+        Number(config.level5_points) === expected[4] &&
+        Number(config.loyalty_credit) === loyalty;
+
+      const storedOk =
+        matches(dok.config, [10, 5, 5, 5, 5], 0) &&
+        matches(classic.config, [300, 40, 20, 10, 10], 2) &&
+        matches(gold.config, [600, 100, 40, 20, 20], 4) &&
+        matches(platinum.config, [5000, 300, 150, 100, 50], 30);
+
+      // A live run against DOK-REORDER as a MEMBER (a guest order correctly earns
+      // nothing, so it cannot demonstrate the matrix): Level 1 must pay 10 and
+      // Level 2 must pay 5, with no Loyalty Credit for a reorder.
+      const place = await createOrder(svc, buyer.id, dok.productId, 1);
+      await submitProof(svc, place.orderId, buyer.id, true);
+      const confirm = await confirmPayment(svc, place.orderId, actorId);
+      const points = await ledgerRows(svc, place.orderId);
+      const loyalty = await loyaltyRows(svc, place.orderId);
+
+      const byLevel = new Map<number, number>();
+      for (const row of points) {
+        byLevel.set(Number(row.unilevel_level), Number(row.total_points));
+      }
+
+      const liveOk =
+        byLevel.get(1) === 10 &&
+        byLevel.get(2) === 5 &&
+        byLevel.get(3) === 5 &&
+        byLevel.get(4) === 5 &&
+        byLevel.get(5) === 5 &&
+        loyalty.length === 0 &&
+        confirm.result?.status === "PROCESSED";
+
+      outcomes.push({
+        test_key: "test_8_reward_matrix",
+        test_name: "Required Test #8 - The authoritative reward matrix is stored and applied exactly",
+        expected:
+          "DOK-REORDER 10/5/5/5/5 with 0 loyalty, Trial 150/20/10/5/5 with 0, Classic 300/40/20/10/10 with 2, Gold 600/100/40/20/20 with 4, Platinum 5000/300/150/100/50 with 30. A DOK-REORDER purchase pays Level 1 = 10 and Level 2 = 5 with no Loyalty Credit.",
+        actual: `storedMatrixCorrect=${storedOk}, liveLedgerRows=${points.length}, levels=${JSON.stringify([...byLevel.entries()])}, loyaltyRows=${loyalty.length}, engineStatus=${confirm.result?.status ?? "none"}`,
+        verdict: storedOk && liveOk ? "PASS" : "FAIL",
+        details: {
+          orderNumber: place.orderNumber,
+          dokudami: dok.config,
+          classic: classic.config,
+          gold: gold.config,
+          platinum: platinum.config,
+          pointRows: points,
+          loyaltyRows: loyalty,
+        },
+      });
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_8_reward_matrix",
+        test_name: "Required Test #8 - The authoritative reward matrix is stored and applied exactly",
+        expected: "Stored values match the supplied matrix and pay correctly",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
+    // ================= TEST 9 - Level 2-5 loyalty is always zero =================
+    try {
+      const { data: allConfigs, error: configError } = await svc
+        .from("reward_configurations")
+        .select("product_id, loyalty_beneficiary_level, loyalty_credit");
+      if (configError) throw new Error(configError.message);
+
+      const rows = allConfigs ?? [];
+      const everyRowPinsLoyaltyToLevel1 = rows.every(
+        (row) => Number(row.loyalty_beneficiary_level) === 1,
+      );
+
+      // Try to move the loyalty beneficiary to Level 5. The database must refuse.
+      const classic = await rewardConfigBySku(svc, "KMD-CLASSIC-001");
+      const illegal = await svc.rpc("kmd_update_reward_config", {
+        p_product_id: classic.productId,
+        p_l1: 300,
+        p_l2: 40,
+        p_l3: 20,
+        p_l4: 10,
+        p_l5: 10,
+        p_loyalty: 2,
+        p_loyalty_level: 5,
+        p_is_active: true,
+        p_actor: actorId,
+      });
+
+      const after = await rewardConfigBySku(svc, "KMD-CLASSIC-001");
+      const stillOnLevel1 = Number(after.config?.loyalty_beneficiary_level) === 1;
+
+      const pass = everyRowPinsLoyaltyToLevel1 && !!illegal.error && stillOnLevel1;
+
+      outcomes.push({
+        test_key: "test_9_loyalty_only_level1",
+        test_name: "Required Test #9 - Loyalty Credits can never be paid below Level 1",
+        expected:
+          "Every reward configuration pins the loyalty beneficiary to Level 1, and an attempt to set Level 5 is refused by the database with the stored value unchanged",
+        actual: `configsChecked=${rows.length}, allPinnedToLevel1=${everyRowPinsLoyaltyToLevel1}, level5Attempt=${illegal.error ? "refused" : "ACCEPTED"}, valueAfterAttempt=${after.config?.loyalty_beneficiary_level}`,
+        verdict: pass ? "PASS" : "FAIL",
+        details: { refusedWith: illegal.error?.message ?? null, configs: rows },
+      });
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_9_loyalty_only_level1",
+        test_name: "Required Test #9 - Loyalty Credits can never be paid below Level 1",
+        expected: "Level 2-5 loyalty is impossible",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
+    // ================= TEST 10 - stock is reserved and cannot be oversold =======
+    try {
+      const dok = await rewardConfigBySku(svc, "KMD-DOKUDAMI-001");
+      await resetStockState(svc, dok.productId, actorId);
+      await setStock(svc, dok.productId, actorId, 1);
+      const beforeInv = await inventoryByProduct(svc, dok.productId);
+
+      const tooMany = await checkoutPlace(svc, {
+        items: [{ sku: "KMD-DOKUDAMI-001", quantity: 2 }],
+        contactName: "Test Buyer",
+        contactPhone: "09170000001",
+        contactEmail: "testbuyer@example.com",
+      });
+
+      const first = await checkoutPlace(svc, {
+        items: [{ sku: "KMD-DOKUDAMI-001", quantity: 1 }],
+        contactName: "Test Buyer",
+        contactPhone: "09170000001",
+        contactEmail: "testbuyer@example.com",
+      });
+      const firstOrderId = String(first.result?.orderId ?? "");
+
+      const afterFirst = await inventoryByProduct(svc, dok.productId);
+      const reservations = firstOrderId ? await stockReservationRows(svc, firstOrderId) : [];
+
+      const second = await checkoutPlace(svc, {
+        items: [{ sku: "KMD-DOKUDAMI-001", quantity: 1 }],
+        contactName: "Test Buyer",
+        contactPhone: "09170000001",
+        contactEmail: "testbuyer@example.com",
+      });
+
+      const rejectedOversell = tooMany.result?.reason === "INSUFFICIENT_STOCK";
+      const reservedOnce =
+        Number(afterFirst?.reserved_quantity) === 1 &&
+        reservations.length === 1 &&
+        reservations[0].status === "held";
+      const secondRefused = second.result?.reason === "INSUFFICIENT_STOCK";
+      const neverNegative =
+        Number(beforeInv?.quantity_on_hand ?? 0) === 1 &&
+        Number(afterFirst?.quantity_on_hand ?? 0) === 1;
+
+      // Release the held reservation so the reset cannot be refused by the
+      // reserved-stock guard, and so the next test starts from a known state.
+      await cancelOrder(svc, firstOrderId, actorId);
+      await setStock(svc, dok.productId, actorId, 0);
+
+      const pass = rejectedOversell && reservedOnce && secondRefused && neverNegative;
+
+      outcomes.push({
+        test_key: "test_10_no_oversell",
+        test_name: "Required Test #10 - Stock is reserved at checkout and can never be oversold",
+        expected:
+          "With 1 unit on hand, a quantity of 2 is refused, a quantity of 1 is accepted and reserves exactly 1 unit, and a second attempt for 1 is refused. On-hand stock never goes negative before payment is confirmed.",
+        actual: `qty2=${tooMany.result?.reason ?? tooMany.error ?? "none"}, qty1=${first.result?.status ?? first.error ?? "none"}, reservedAfterFirst=${afterFirst?.reserved_quantity}, reservations=${reservations.length}, secondAttempt=${second.result?.reason ?? second.error ?? "none"}`,
+        verdict: pass ? "PASS" : "FAIL",
+        details: { before: beforeInv, afterFirst, reservations, tooMany: tooMany.result, second: second.result },
+      });
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_10_no_oversell",
+        test_name: "Required Test #10 - Stock is reserved at checkout and can never be oversold",
+        expected: "Reservation prevents overselling",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
+    // ================= TEST 11 - shipping quote honesty ========================
+    try {
+      const { data: zones } = await svc
+        .from("delivery_zones")
+        .select("id, name, shipping_fee, is_configured, is_active")
+        .eq("is_active", true)
+        .order("sort_order");
+
+      const zoneList = (zones ?? []) as Array<{
+        id: string;
+        name: string;
+        shipping_fee: number;
+        is_configured: boolean;
+      }>;
+      const unconfigured = zoneList.find((zone) => !zone.is_configured) ?? null;
+
+      if (!unconfigured) {
+        outcomes.push({
+          test_key: "test_11_shipping_quote",
+          test_name: "Required Test #11 - An area without an owner-supplied fee is never charged a guessed amount",
+          expected: "A delivery area exists that still has no verified fee",
+          actual: "Every active delivery area is already configured, so the pending-fee path could not be exercised",
+          verdict: "BLOCKED",
+          details: { zones: zoneList },
+        });
+      } else {
+        const dok = await rewardConfigBySku(svc, "KMD-DOKUDAMI-001");
+        // A sellable quantity must exist for both halves of this test.
+        await resetStockState(svc, dok.productId, actorId);
+        await setStock(svc, dok.productId, actorId, 8);
+
+        const pending = await checkoutPlace(svc, {
+          items: [{ sku: "KMD-DOKUDAMI-001", quantity: 1 }],
+          contactName: "Test Buyer",
+          contactPhone: "09170000001",
+          contactEmail: "testbuyer@example.com",
+          deliveryZoneId: unconfigured.id,
+        });
+        const pendingRow = pending.result?.orderId
+          ? await orderRow(svc, String(pending.result.orderId))
+          : null;
+
+        const pendingOk =
+          pending.result?.status === "CREATED" &&
+          pending.result?.shippingQuoted === false &&
+          Number(pending.result?.shippingFee ?? -1) === 0 &&
+          pendingRow?.is_shipping_quoted === false;
+
+        await cancelOrder(svc, String(pending.result?.orderId ?? ""), actorId);
+
+        // Now give the area a real fee and confirm checkout quotes it.
+        const fee = 137;
+        await saveZone(svc, actorId, {
+          id: unconfigured.id,
+          name: unconfigured.name,
+          shippingFee: fee,
+          isConfigured: true,
+        });
+
+        const quoted = await checkoutPlace(svc, {
+          items: [{ sku: "KMD-DOKUDAMI-001", quantity: 1 }],
+          contactName: "Test Buyer",
+          contactPhone: "09170000001",
+          contactEmail: "testbuyer@example.com",
+          deliveryZoneId: unconfigured.id,
+        });
+
+        const quotedOk =
+          quoted.result?.status === "CREATED" &&
+          quoted.result?.shippingQuoted === true &&
+          Number(quoted.result?.shippingFee) === fee &&
+          Number(quoted.result?.totalAmount) ===
+            Number(quoted.result?.subtotal) + fee;
+
+        await cancelOrder(svc, String(quoted.result?.orderId ?? ""), actorId);
+
+        await saveZone(svc, actorId, {
+          id: unconfigured.id,
+          name: unconfigured.name,
+          shippingFee: 0,
+          isConfigured: false,
+        });
+        await setStock(svc, dok.productId, actorId, 0);
+
+        outcomes.push({
+          test_key: "test_11_shipping_quote",
+          test_name: "Required Test #11 - An area without an owner-supplied fee is never charged a guessed amount",
+          expected:
+            "An unconfigured area accepts the order with shippingQuoted=false and a shipping fee of 0. Once the owner saves a fee the same checkout quotes it exactly and adds it to the total.",
+          actual: `area=${unconfigured.name}, pendingOrderShippingQuoted=${pending.result?.shippingQuoted}, pendingFee=${pending.result?.shippingFee}, configuredOrderFee=${quoted.result?.shippingFee}, configuredTotal=${quoted.result?.totalAmount}`,
+          verdict: pendingOk && quotedOk ? "PASS" : "FAIL",
+          details: { pending: pending.result, pendingRow, quoted: quoted.result, fee },
+        });
+      }
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_11_shipping_quote",
+        test_name: "Required Test #11 - An area without an owner-supplied fee is never charged a guessed amount",
+        expected: "Shipping quote pending until the owner sets a fee",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
+    // ================= TEST 12 - server-side pricing ==========================
+    try {
+      const dok = await rewardConfigBySku(svc, "KMD-DOKUDAMI-001");
+      await resetStockState(svc, dok.productId, actorId);
+      await setStock(svc, dok.productId, actorId, 5);
+
+      // The client claims the item costs 1 peso and passes a bogus total.
+      const tampered = await checkoutPlace(svc, {
+        items: [{ sku: "KMD-DOKUDAMI-001", quantity: 2, unitPrice: 1, lineTotal: 2 }],
+        unitPrice: 1,
+        total: 2,
+        contactName: "Test Buyer",
+        contactPhone: "09170000001",
+        contactEmail: "testbuyer@example.com",
+      });
+
+      const orderId = String(tampered.result?.orderId ?? "");
+      const items = orderId ? await orderItemRows(svc, orderId) : [];
+      const row = orderId ? await orderRow(svc, orderId) : null;
+      const { data: product } = await svc
+        .from("products")
+        .select("selling_price")
+        .eq("id", dok.productId)
+        .maybeSingle();
+      const cataloguePrice = Number(product?.selling_price ?? 0);
+
+      const pass =
+        tampered.result?.status === "CREATED" &&
+        items.length === 1 &&
+        Number(items[0].unit_price) === cataloguePrice &&
+        Number(items[0].line_total) === cataloguePrice * 2 &&
+        Number(row?.subtotal) === cataloguePrice * 2;
+
+      await cancelOrder(svc, orderId, actorId);
+      await setStock(svc, dok.productId, actorId, 0);
+
+      outcomes.push({
+        test_key: "test_12_server_side_pricing",
+        test_name: "Required Test #12 - Prices always come from the server, never from the request",
+        expected:
+          "A request that claims a unit price of 1 is ignored: the order item and the order total use the catalogue selling price instead",
+        actual: `claimedUnitPrice=1, storedUnitPrice=${items[0]?.unit_price ?? "none"}, cataloguePrice=${cataloguePrice}, storedSubtotal=${row?.subtotal ?? "none"}`,
+        verdict: pass ? "PASS" : "FAIL",
+        details: { orderNumber: tampered.result?.orderNumber ?? null, items, row },
+      });
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_12_server_side_pricing",
+        test_name: "Required Test #12 - Prices always come from the server, never from the request",
+        expected: "Client-supplied prices are ignored",
+        actual: String(error),
+        verdict: "FAIL",
+        details: {},
+      });
+    }
+
+    // ================= TEST 13 - rejection releases stock, guest earns nothing ==
+    try {
+      const dok = await rewardConfigBySku(svc, "KMD-DOKUDAMI-001");
+      await resetStockState(svc, dok.productId, actorId);
+      await setStock(svc, dok.productId, actorId, 3);
+
+      // 13a - a rejected order returns its reservation and posts no rewards.
+      const rejectOrder = await checkoutPlace(svc, {
+        items: [{ sku: "KMD-DOKUDAMI-001", quantity: 2 }],
+        contactName: "Test Buyer",
+        contactPhone: "09170000001",
+        contactEmail: "testbuyer@example.com",
+      });
+      const rejectOrderId = String(rejectOrder.result?.orderId ?? "");
+
+      const duringHold = await inventoryByProduct(svc, dok.productId);
+      const rejected = await svc.rpc("kmd_reject_payment", {
+        p_order_id: rejectOrderId,
+        p_actor: actorId,
+        p_reason: "Required test run",
+      });
+      const afterRelease = await inventoryByProduct(svc, dok.productId);
+      const rejectLedger = await ledgerRows(svc, rejectOrderId);
+      const releaseReservations = await stockReservationRows(svc, rejectOrderId);
+
+      const releaseOk =
+        Number(duringHold?.reserved_quantity) === 2 &&
+        Number(afterRelease?.reserved_quantity) === 0 &&
+        releaseReservations.every((row) => row.status === "released") &&
+        rejectLedger.length === 0;
+
+      // 13b - a guest order earns no unilevel rewards but is processed explicitly.
+      const guest = await checkoutPlace(svc, {
+        items: [{ sku: "KMD-DOKUDAMI-001", quantity: 1 }],
+        contactName: "Guest Shopper",
+        contactPhone: "09170000099",
+        contactEmail: "guest@example.com",
+      });
+      const guestOrderId = String(guest.result?.orderId ?? "");
+      const guestConfirm = await confirmPayment(svc, guestOrderId, actorId);
+      const guestRow = await orderRow(svc, guestOrderId);
+      const guestLedger = await ledgerRows(svc, guestOrderId);
+
+      const guestOk =
+        guest.result?.customerType === "guest" &&
+        guestRow?.customer_type === "guest" &&
+        guestRow?.buyer_profile_id === null &&
+        guestLedger.length === 0 &&
+        guestConfirm.result?.reason === "GUEST_PURCHASE_NO_REWARDS" &&
+        guestRow?.rewards_processed === true;
+
+      await setStock(svc, dok.productId, actorId, 0);
+
+      outcomes.push({
+        test_key: "test_13_release_and_guest",
+        test_name:
+          "Required Test #13 - A rejected order releases its stock, and a guest purchase posts no unilevel rewards",
+        expected:
+          "Rejecting an order that held 2 units returns the reservation to the shelf and creates no ledger rows. A guest order is recorded as a guest with no member buyer, posts no rewards, and is explicitly marked processed so nothing is silently skipped.",
+        actual: `reservedDuringHold=${duringHold?.reserved_quantity}, reservedAfterReject=${afterRelease?.reserved_quantity}, reservations=${releaseReservations.map((r) => r.status).join(",") || "none"}, rejectLedgerRows=${rejectLedger.length}, guestCustomerType=${guestRow?.customer_type}, guestLedgerRows=${guestLedger.length}, guestReason=${guestConfirm.result?.reason ?? "none"}, guestRewardsProcessed=${guestRow?.rewards_processed}`,
+        verdict: releaseOk && guestOk ? "PASS" : "FAIL",
+        details: {
+          rejectOrderNumber: rejectOrder.result?.orderNumber ?? null,
+          guestOrderNumber: guest.result?.orderNumber ?? null,
+          duringHold,
+          afterRelease,
+          releaseReservations,
+          guestRow,
+          guestConfirm: guestConfirm.result,
+        },
+      });
+    } catch (error) {
+      outcomes.push({
+        test_key: "test_13_release_and_guest",
+        test_name:
+          "Required Test #13 - A rejected order releases its stock, and a guest purchase posts no unilevel rewards",
+        expected: "Stock released and no rewards for a rejected or guest order",
         actual: String(error),
         verdict: "FAIL",
         details: {},

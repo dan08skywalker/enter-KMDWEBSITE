@@ -5,6 +5,7 @@ import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { invokeFunction } from "@/lib/kmd/invoke";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/kmd/page-header";
+import { ExportButton } from "@/components/kmd/export-button";
 import { StatCard } from "@/components/kmd/stat-card";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
@@ -253,6 +254,7 @@ export default function AdminRedemptions() {
       <PageHeader
         title="Redemptions"
         description="Member payout requests. A request can never exceed the member's available points, and points are held from the moment it is submitted."
+        actions={<ExportButton dataset="redemptions" />}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

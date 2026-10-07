@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Pencil, Plus, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -7,19 +7,13 @@ import { PageHeader } from "@/components/kmd/page-header";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
+import { ExportButton } from "@/components/kmd/export-button";
 import { FilterBar, SearchInput } from "@/components/kmd/filter-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -27,303 +21,565 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDate, formatPeso } from "@/lib/kmd/format";
-import type { Product } from "@/lib/kmd/types";
+import { formatPeso } from "@/lib/kmd/format";
+
+interface CatalogueProduct {
+  id: string;
+  product_code: string;
+  name: string;
+  sku: string;
+  slug: string | null;
+  category: string;
+  product_type: string;
+  brand: string | null;
+  short_description: string | null;
+  description: string | null;
+  disclaimer: string | null;
+  image_url: string | null;
+  regular_price: number | null;
+  promo_price: number | null;
+  selling_price: number;
+  is_active: boolean;
+  is_digital: boolean;
+  track_inventory: boolean;
+  sort_order: number;
+}
 
 interface ProductForm {
+  id?: string;
   productCode: string;
   name: string;
   sku: string;
-  membershipCode: string;
+  slug: string;
   category: string;
   productType: string;
-  sellingPrice: string;
+  brand: string;
+  shortDescription: string;
+  description: string;
+  disclaimer: string;
+  imageUrl: string;
+  regularPrice: string;
+  promoPrice: string;
+  sortOrder: string;
   isActive: boolean;
+  isDigital: boolean;
+  trackInventory: boolean;
 }
 
-const EMPTY_FORM: ProductForm = {
+const EMPTY: ProductForm = {
   productCode: "",
   name: "",
   sku: "",
-  membershipCode: "",
-  category: "",
-  productType: "membership",
-  sellingPrice: "0",
+  slug: "",
+  category: "Wellness",
+  productType: "retail",
+  brand: "",
+  shortDescription: "",
+  description: "",
+  disclaimer: "",
+  imageUrl: "",
+  regularPrice: "",
+  promoPrice: "",
+  sortOrder: "0",
   isActive: true,
+  isDigital: false,
+  trackInventory: true,
 };
+
+const PRODUCT_TYPES = [
+  { value: "retail", label: "Retail product" },
+  { value: "reorder", label: "Member reorder" },
+  { value: "digital", label: "Digital service" },
+  { value: "bundle", label: "Bundle" },
+  { value: "membership", label: "Membership bundle" },
+];
 
 export default function AdminProducts() {
   const [loading, setLoading] = useState(true);
-  const [products, setProducts] = useState<Product[]>([]);
+  const [products, setProducts] = useState<CatalogueProduct[]>([]);
   const [search, setSearch] = useState("");
-  const [editing, setEditing] = useState<Product | null>(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState<ProductForm>(EMPTY_FORM);
+  const [editing, setEditing] = useState<CatalogueProduct | null>(null);
+  const [form, setForm] = useState<ProductForm | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase.from("products").select("*").order("product_code");
-    if (error) console.error("Could not load products:", error.message);
-    setProducts((data ?? []) as unknown as Product[]);
+    const { data, error } = await supabase
+      .from("products")
+      .select("*")
+      .order("sort_order")
+      .order("product_code");
+
+    if (error) {
+      console.error("Could not load the catalogue:", error.message);
+      setProducts([]);
+    } else {
+      setProducts((data ?? []) as CatalogueProduct[]);
+    }
     setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const openNew = () => {
     setEditing(null);
-    setForm(EMPTY_FORM);
-    setDialogOpen(true);
+    setForm({ ...EMPTY });
   };
 
-  const openEdit = (product: Product) => {
+  const openEdit = (product: CatalogueProduct) => {
     setEditing(product);
     setForm({
+      id: product.id,
       productCode: product.product_code,
       name: product.name,
       sku: product.sku,
-      membershipCode: product.membership_code ?? "",
+      slug: product.slug ?? "",
       category: product.category,
       productType: product.product_type,
-      sellingPrice: String(product.selling_price),
+      brand: product.brand ?? "",
+      shortDescription: product.short_description ?? "",
+      description: product.description ?? "",
+      disclaimer: product.disclaimer ?? "",
+      imageUrl: product.image_url ?? "",
+      regularPrice: product.regular_price === null ? "" : String(product.regular_price),
+      promoPrice: product.promo_price === null ? "" : String(product.promo_price),
+      sortOrder: String(product.sort_order),
       isActive: product.is_active,
+      isDigital: product.is_digital,
+      trackInventory: product.track_inventory,
     });
-    setDialogOpen(true);
   };
 
   const save = async () => {
-    if (!form.name.trim() || !form.sku.trim() || (!editing && !form.productCode.trim())) {
-      toast.error("Product code, name and SKU are required");
+    if (!form) return;
+    if (!form.name.trim()) {
+      toast.error("A product name is required");
+      return;
+    }
+    if (!form.id && (!form.productCode.trim() || !form.sku.trim())) {
+      toast.error("Product code and SKU are required for a new product");
+      return;
+    }
+    if (Number(form.regularPrice || 0) > 0 && Number(form.promoPrice || 0) > Number(form.regularPrice)) {
+      toast.error("The promotional price cannot be higher than the regular price");
       return;
     }
 
     setBusy(true);
-    const outcome = editing
-      ? await invokeFunction("admin-actions", {
-          action: "update_product",
-          productId: editing.id,
-          name: form.name,
-          sku: form.sku,
-          membershipCode: form.membershipCode,
-          category: form.category,
+    const outcome = await invokeFunction<{ sellingPrice?: number; reasonText?: string }>(
+      "admin-actions",
+      {
+        action: "save_product",
+        payload: {
+          id: form.id ?? null,
+          productCode: form.productCode.trim() || null,
+          name: form.name.trim(),
+          sku: form.sku.trim() || null,
+          slug: form.slug.trim() || null,
+          category: form.category.trim() || "General",
           productType: form.productType,
-          sellingPrice: Number(form.sellingPrice) || 0,
+          brand: form.brand.trim() || null,
+          shortDescription: form.shortDescription.trim() || null,
+          description: form.description.trim() || null,
+          disclaimer: form.disclaimer.trim() || null,
+          imageUrl: form.imageUrl.trim() || null,
+          regularPrice: form.regularPrice.trim() === "" ? null : Number(form.regularPrice),
+          promoPrice: form.promoPrice.trim() === "" ? null : Number(form.promoPrice),
+          sortOrder: Number(form.sortOrder) || 0,
           isActive: form.isActive,
-        })
-      : await invokeFunction("admin-actions", {
-          action: "create_product",
-          productCode: form.productCode,
-          name: form.name,
-          sku: form.sku,
-          membershipCode: form.membershipCode,
-          category: form.category,
-          productType: form.productType,
-          sellingPrice: Number(form.sellingPrice) || 0,
-          isActive: form.isActive,
-        });
+          isDigital: form.isDigital,
+          trackInventory: form.trackInventory,
+        },
+      },
+    );
     setBusy(false);
 
     if (!outcome.ok) {
-      toast.error("Could not save the product", { description: outcome.error });
+      toast.error(outcome.error ?? "The product could not be saved");
       return;
     }
-    toast.success(editing ? "Product saved and audited" : "Product created with a zero reward row", {
-      description: editing ? undefined : "Set its commission values in Reward Configuration.",
-    });
-    setDialogOpen(false);
-    await load();
+
+    toast.success(
+      outcome.data?.reasonText
+        ? `${outcome.data.reasonText} Charged price: ${formatPeso(outcome.data.sellingPrice ?? 0)}`
+        : "Product saved",
+    );
+    setForm(null);
+    void load();
   };
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return products;
-    return products.filter((product) =>
-      `${product.product_code} ${product.name} ${product.sku} ${product.category}`
-        .toLowerCase()
-        .includes(needle),
+    return products.filter(
+      (product) =>
+        product.name.toLowerCase().includes(needle) ||
+        product.sku.toLowerCase().includes(needle) ||
+        product.product_code.toLowerCase().includes(needle) ||
+        product.category.toLowerCase().includes(needle),
     );
   }, [products, search]);
 
-  const columns: Column<Product>[] = [
-    { key: "code", header: "Product ID", cell: (row) => <span className="font-mono text-xs">{row.product_code}</span> },
-    { key: "name", header: "Product Name", cell: (row) => <span className="text-sm font-medium">{row.name}</span> },
-    { key: "sku", header: "SKU", cell: (row) => <span className="font-mono text-xs">{row.sku}</span> },
-    { key: "membership", header: "Membership Code", cell: (row) => <span className="font-mono text-xs">{row.membership_code ?? "\u2014"}</span> },
-    { key: "category", header: "Category", cell: (row) => row.category },
+  const columns: Array<Column<CatalogueProduct>> = [
+    {
+      key: "product",
+      header: "Product",
+      cell: (product) => (
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-secondary">
+            {product.image_url ? (
+              <img
+                src={product.image_url}
+                alt=""
+                crossOrigin="anonymous"
+                className="h-full w-full object-cover"
+              />
+            ) : (
+              <span className="flex h-full w-full items-center justify-center">
+                <ShoppingBag className="h-4 w-4 text-muted-foreground" />
+              </span>
+            )}
+          </span>
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold">{product.name}</p>
+            <p className="font-mono text-[10px] text-muted-foreground">
+              {product.sku} · {product.product_code}
+            </p>
+          </div>
+        </div>
+      ),
+    },
     {
       key: "type",
       header: "Type",
-      cell: (row) => (
+      cell: (product) => (
         <StatusBadge
-          label={row.product_type === "membership" ? "Membership" : row.product_type === "reorder" ? "Reorder" : "Bundle"}
-          tone={row.product_type === "membership" ? "gold" : "info"}
+          label={product.product_type}
+          tone={product.product_type === "membership" ? "gold" : "info"}
         />
       ),
     },
-    { key: "price", header: "Selling Price", cell: (row) => formatPeso(row.selling_price), className: "text-right" },
     {
-      key: "status",
-      header: "Status",
-      cell: (row) => (
-        <StatusBadge label={row.is_active ? "Active" : "Inactive"} tone={row.is_active ? "success" : "neutral"} />
+      key: "category",
+      header: "Category",
+      cell: (product) => <span className="text-xs">{product.category}</span>,
+    },
+    {
+      key: "price",
+      header: "Price",
+      cell: (product) => (
+        <div className="text-xs">
+          <p className="font-semibold tabular-nums">{formatPeso(product.selling_price)}</p>
+          {product.regular_price !== null && product.regular_price > product.selling_price ? (
+            <p className="text-[10px] text-muted-foreground line-through tabular-nums">
+              {formatPeso(product.regular_price)}
+            </p>
+          ) : null}
+          {product.selling_price <= 0 ? (
+            <p className="text-[10px] font-semibold text-warning">Cannot be sold yet</p>
+          ) : null}
+        </div>
       ),
     },
-    { key: "updated", header: "Updated", cell: (row) => formatDate(row.updated_at) },
+    {
+      key: "state",
+      header: "State",
+      cell: (product) =>
+        product.is_active ? (
+          <StatusBadge label="Active" tone="success" />
+        ) : (
+          <StatusBadge label="Inactive" tone="neutral" />
+        ),
+    },
     {
       key: "actions",
       header: "",
-      className: "text-right",
-      cell: (row) => (
-        <Button variant="ghost" size="sm" onClick={() => openEdit(row)}>
-          <Pencil className="h-3.5 w-3.5" />
-          Edit
-        </Button>
+      headerClassName: "text-right",
+      cell: (product) => (
+        <div className="text-right">
+          <Button type="button" variant="outline" size="sm" onClick={() => openEdit(product)}>
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </Button>
+        </div>
       ),
     },
   ];
 
   return (
-    <>
+    <div className="space-y-6">
       <PageHeader
-        title="Products"
-        description="The catalogue that orders and the reward engine key on. Commission values live in Reward Configuration, not here."
+        title="Catalogue"
+        description="Products, prices and presentation. The promotional price is what checkout charges; the regular price is what it replaces."
         actions={
-          <Button onClick={openNew}>
-            <Plus className="h-4 w-4" />
-            New product
-          </Button>
+          <>
+            <ExportButton dataset="inventory" label="Export stock" />
+            <Button type="button" variant="brand" size="sm" onClick={openNew}>
+              <Plus className="h-3.5 w-3.5" />
+              New product
+            </Button>
+          </>
         }
       />
 
-      <div className="kmd-panel border-dashed p-4">
-        <p className="text-xs text-muted-foreground">
-          Every order permanently stores the product ID, SKU and quantity, so changing a product name
-          never changes a past calculation. A product with no configured commission produces no ledger
-          rows — it simply earns nothing until the matrix is filled in.
-        </p>
-      </div>
-
       <FilterBar>
-        <SearchInput value={search} onChange={setSearch} placeholder="Search code, name, SKU or category" />
+        <SearchInput
+          value={search}
+          onChange={setSearch}
+          placeholder="Search by name, SKU, code or category"
+        />
+        <p className="text-xs text-muted-foreground">
+          {filtered.length} product{filtered.length === 1 ? "" : "s"}
+        </p>
       </FilterBar>
 
       <DataTable
         columns={columns}
         rows={filtered}
-        rowKey={(row) => row.id}
+        rowKey={(product) => product.id}
         loading={loading}
-        empty={<EmptyState icon={ShoppingBag} title="No products" description="Create your first product to start selling." action={<Button onClick={openNew}>New product</Button>} />}
+        empty={
+          <EmptyState
+            icon={ShoppingBag}
+            title="No products match"
+            description="Clear the search or add a new product."
+          />
+        }
       />
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{editing ? "Edit product" : "New product"}</DialogTitle>
-            <DialogDescription>
-              {editing
-                ? "Changes are recorded on the audit log."
-                : "The product is created with an all-zero reward row so you can configure its commission next."}
-            </DialogDescription>
-          </DialogHeader>
+      {form ? (
+        <div className="kmd-panel p-6">
+          <p className="text-sm font-semibold">
+            {editing ? `Edit ${editing.name}` : "New product"}
+          </p>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2">
-              <Label htmlFor="product-code">Product ID</Label>
+          <div className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <Label htmlFor="product-name">Product name</Label>
+              <Input
+                id="product-name"
+                value={form.name}
+                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                className="mt-1.5"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="product-code">Product code</Label>
               <Input
                 id="product-code"
                 value={form.productCode}
                 onChange={(event) => setForm({ ...form, productCode: event.target.value })}
+                className="mt-1.5 font-mono"
                 disabled={Boolean(editing)}
-                placeholder="KMD-PROD-0006"
-                className="font-mono"
               />
+              {editing ? (
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  The code is fixed after creation so reward configuration stays attached.
+                </p>
+              ) : null}
             </div>
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="product-sku">SKU</Label>
               <Input
                 id="product-sku"
                 value={form.sku}
                 onChange={(event) => setForm({ ...form, sku: event.target.value })}
-                placeholder="KMD-XXXX-001"
-                className="font-mono"
+                className="mt-1.5 font-mono"
+                disabled={Boolean(editing)}
               />
             </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="product-name">Product Name</Label>
+
+            <div>
+              <Label htmlFor="product-slug">Public URL slug</Label>
               <Input
-                id="product-name"
-                value={form.name}
-                onChange={(event) => setForm({ ...form, name: event.target.value })}
+                id="product-slug"
+                value={form.slug}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    slug: event.target.value
+                      .toLowerCase()
+                      .replace(/[^a-z0-9]+/g, "-")
+                      .replace(/^-|-$/g, ""),
+                  })
+                }
+                className="mt-1.5 font-mono"
+                placeholder="dokudami-capsules"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="product-membership">Membership Code</Label>
-              <Input
-                id="product-membership"
-                value={form.membershipCode}
-                onChange={(event) => setForm({ ...form, membershipCode: event.target.value })}
-                className="font-mono"
-              />
-            </div>
-            <div className="space-y-2">
+            <div>
               <Label htmlFor="product-category">Category</Label>
               <Input
                 id="product-category"
                 value={form.category}
                 onChange={(event) => setForm({ ...form, category: event.target.value })}
-                placeholder="Membership Bundle"
+                className="mt-1.5"
               />
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="product-type">Product Type</Label>
-              <Select value={form.productType} onValueChange={(value) => setForm({ ...form, productType: value })}>
-                <SelectTrigger id="product-type">
+
+            <div>
+              <Label htmlFor="product-type">Product type</Label>
+              <Select
+                value={form.productType}
+                onValueChange={(value) => setForm({ ...form, productType: value })}
+              >
+                <SelectTrigger id="product-type" className="mt-1.5">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="membership">Membership</SelectItem>
-                  <SelectItem value="bundle">Bundle</SelectItem>
-                  <SelectItem value="reorder">Reorder</SelectItem>
+                  {PRODUCT_TYPES.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="product-price">Selling Price</Label>
+            <div>
+              <Label htmlFor="product-brand">Brand</Label>
               <Input
-                id="product-price"
-                inputMode="decimal"
-                value={form.sellingPrice}
-                onChange={(event) =>
-                  setForm({ ...form, sellingPrice: event.target.value.replace(/[^0-9.]/g, "") })
-                }
+                id="product-brand"
+                value={form.brand}
+                onChange={(event) => setForm({ ...form, brand: event.target.value })}
+                className="mt-1.5"
+                placeholder="EGC Dokudami"
               />
             </div>
-            <div className="flex items-center gap-2 sm:col-span-2">
-              <Switch
-                id="product-active"
-                checked={form.isActive}
-                onCheckedChange={(checked) => setForm({ ...form, isActive: checked })}
+
+            <div>
+              <Label htmlFor="product-regular">Regular price (PHP)</Label>
+              <Input
+                id="product-regular"
+                inputMode="decimal"
+                value={form.regularPrice}
+                onChange={(event) =>
+                  setForm({ ...form, regularPrice: event.target.value.replace(/[^0-9.]/g, "") })
+                }
+                className="mt-1.5"
+                placeholder="3000"
               />
-              <Label htmlFor="product-active" className="cursor-pointer text-sm">
-                Active and available for orders
-              </Label>
+            </div>
+            <div>
+              <Label htmlFor="product-promo">Promotional price (PHP)</Label>
+              <Input
+                id="product-promo"
+                inputMode="decimal"
+                value={form.promoPrice}
+                onChange={(event) =>
+                  setForm({ ...form, promoPrice: event.target.value.replace(/[^0-9.]/g, "") })
+                }
+                className="mt-1.5"
+                placeholder="1850"
+              />
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Leave the promotional price blank to charge the regular price.
+              </p>
+            </div>
+
+            <div>
+              <Label htmlFor="product-image">Image URL</Label>
+              <Input
+                id="product-image"
+                value={form.imageUrl}
+                onChange={(event) => setForm({ ...form, imageUrl: event.target.value })}
+                className="mt-1.5"
+                placeholder="/products/dokudami.png"
+              />
+            </div>
+            <div>
+              <Label htmlFor="product-sort">Sort order</Label>
+              <Input
+                id="product-sort"
+                inputMode="numeric"
+                value={form.sortOrder}
+                onChange={(event) =>
+                  setForm({ ...form, sortOrder: event.target.value.replace(/[^0-9-]/g, "") })
+                }
+                className="mt-1.5"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <Label htmlFor="product-eyebrow">Short description</Label>
+              <Input
+                id="product-eyebrow"
+                value={form.shortDescription}
+                onChange={(event) => setForm({ ...form, shortDescription: event.target.value })}
+                className="mt-1.5"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <Label htmlFor="product-description">Full description</Label>
+              <Textarea
+                id="product-description"
+                value={form.description}
+                onChange={(event) => setForm({ ...form, description: event.target.value })}
+                rows={4}
+                className="mt-1.5"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <Label htmlFor="product-disclaimer">Disclaimer shown on the product page</Label>
+              <Textarea
+                id="product-disclaimer"
+                value={form.disclaimer}
+                onChange={(event) => setForm({ ...form, disclaimer: event.target.value })}
+                rows={2}
+                className="mt-1.5"
+                placeholder="This product is a food supplement. It is not intended to diagnose, treat, cure or prevent any disease."
+              />
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)} disabled={busy}>
+          <div className="mt-5 grid gap-3 sm:grid-cols-3">
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-xs font-semibold">Active</p>
+                <p className="text-[11px] text-muted-foreground">Shown on the public site.</p>
+              </div>
+              <Switch
+                checked={form.isActive}
+                onCheckedChange={(checked) => setForm({ ...form, isActive: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-xs font-semibold">Digital</p>
+                <p className="text-[11px] text-muted-foreground">No delivery fee or stock.</p>
+              </div>
+              <Switch
+                checked={form.isDigital}
+                onCheckedChange={(checked) => setForm({ ...form, isDigital: checked })}
+              />
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div>
+                <p className="text-xs font-semibold">Track stock</p>
+                <p className="text-[11px] text-muted-foreground">Reserve units at checkout.</p>
+              </div>
+              <Switch
+                checked={form.trackInventory}
+                onCheckedChange={(checked) => setForm({ ...form, trackInventory: checked })}
+              />
+            </div>
+          </div>
+
+          <div className="mt-5 flex gap-2">
+            <Button type="button" variant="ghost" onClick={() => setForm(null)}>
               Cancel
             </Button>
-            <Button onClick={() => void save()} disabled={busy}>
+            <Button type="button" variant="brand" disabled={busy} onClick={() => void save()}>
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              {editing ? "Save product" : "Create product"}
+              Save product
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }

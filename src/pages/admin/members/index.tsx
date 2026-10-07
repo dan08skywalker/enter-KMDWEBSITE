@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/auth-context";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { invokeFunction } from "@/lib/kmd/invoke";
 import { PageHeader } from "@/components/kmd/page-header";
+import { ExportButton } from "@/components/kmd/export-button";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
@@ -318,10 +319,13 @@ export default function AdminMembers() {
         title="Members"
         description="The member register. Membership state, sponsor placement and balances are administered here and every change is audited."
         actions={
-          <Button variant="outline" onClick={() => void load()} disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            Refresh
-          </Button>
+          <>
+            <ExportButton dataset="members" filters={{ search: search || null }} />
+            <Button variant="outline" onClick={() => void load()} disabled={loading}>
+              {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              Refresh
+            </Button>
+          </>
         }
       />
 

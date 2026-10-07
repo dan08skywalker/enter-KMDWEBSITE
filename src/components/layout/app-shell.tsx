@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
-import { LogOut, Menu, Shield, UserRound } from "lucide-react";
+import { LogOut, Menu, Shield, ShoppingBag, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/auth-context";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,8 @@ import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/s
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { NotificationBell } from "@/components/layout/notification-bell";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { accountStatus } from "@/lib/kmd/labels";
 import { initials } from "@/lib/kmd/format";
 import { ADMIN_NAV, MEMBER_NAV, type NavSection } from "@/components/layout/nav-items";
@@ -184,7 +186,17 @@ export function AppShell({ children, variant }: AppShellProps) {
           </div>
 
           <div className="flex items-center gap-1">
+            <div className="hidden sm:block">
+              <LanguageSwitcher className="h-9 min-w-[118px] text-xs" />
+            </div>
+            <NotificationBell />
             <ThemeToggle />
+            <Button asChild variant="ghost" size="sm" className="ml-1">
+              <Link to="/shop">
+                <ShoppingBag className="h-4 w-4" />
+                <span className="hidden sm:inline">Shop</span>
+              </Link>
+            </Button>
           </div>
         </header>
 

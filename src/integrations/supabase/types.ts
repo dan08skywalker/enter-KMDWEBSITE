@@ -3414,6 +3414,189 @@ export type Database = {
         }
         Relationships: []
       }
+      bundle_components: {
+        Row: {
+          bundle_product_id: string
+          component_product_id: string
+          created_at: string
+          id: string
+          quantity: number
+        }
+        Insert: {
+          bundle_product_id: string
+          component_product_id: string
+          created_at?: string
+          id?: string
+          quantity?: number
+        }
+        Update: {
+          bundle_product_id?: string
+          component_product_id?: string
+          created_at?: string
+          id?: string
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bundle_components_bundle_product_id_fkey"
+            columns: ["bundle_product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bundle_components_component_product_id_fkey"
+            columns: ["component_product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      content_posts: {
+        Row: {
+          author_id: string | null
+          body: string | null
+          category: string
+          cover_image_url: string | null
+          created_at: string
+          excerpt: string | null
+          id: string
+          is_pinned: boolean
+          is_published: boolean
+          link_url: string | null
+          published_at: string | null
+          slug: string
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          author_id?: string | null
+          body?: string | null
+          category?: string
+          cover_image_url?: string | null
+          created_at?: string
+          excerpt?: string | null
+          id?: string
+          is_pinned?: boolean
+          is_published?: boolean
+          link_url?: string | null
+          published_at?: string | null
+          slug: string
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          author_id?: string | null
+          body?: string | null
+          category?: string
+          cover_image_url?: string | null
+          created_at?: string
+          excerpt?: string | null
+          id?: string
+          is_pinned?: boolean
+          is_published?: boolean
+          link_url?: string | null
+          published_at?: string | null
+          slug?: string
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "content_posts_author_id_fkey"
+            columns: ["author_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      delivery_zones: {
+        Row: {
+          coverage: string | null
+          created_at: string
+          estimated_days_max: number | null
+          estimated_days_min: number | null
+          free_shipping_threshold: number | null
+          id: string
+          is_active: boolean
+          is_configured: boolean
+          name: string
+          shipping_fee: number
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          coverage?: string | null
+          created_at?: string
+          estimated_days_max?: number | null
+          estimated_days_min?: number | null
+          free_shipping_threshold?: number | null
+          id?: string
+          is_active?: boolean
+          is_configured?: boolean
+          name: string
+          shipping_fee?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          coverage?: string | null
+          created_at?: string
+          estimated_days_max?: number | null
+          estimated_days_min?: number | null
+          free_shipping_threshold?: number | null
+          id?: string
+          is_active?: boolean
+          is_configured?: boolean
+          name?: string
+          shipping_fee?: number
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      inventory: {
+        Row: {
+          created_at: string
+          id: string
+          is_unlimited: boolean
+          low_stock_threshold: number
+          product_id: string
+          quantity_on_hand: number
+          reserved_quantity: number
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_unlimited?: boolean
+          low_stock_threshold?: number
+          product_id: string
+          quantity_on_hand?: number
+          reserved_quantity?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_unlimited?: boolean
+          low_stock_threshold?: number
+          product_id?: string
+          quantity_on_hand?: number
+          reserved_quantity?: number
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventory_product_id_fkey"
+            columns: ["product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       loyalty_credit_ledger: {
         Row: {
           beneficiary_id: string
@@ -3560,6 +3743,52 @@ export type Database = {
           },
         ]
       }
+      notifications: {
+        Row: {
+          body: string | null
+          created_at: string
+          id: string
+          is_read: boolean
+          link: string | null
+          metadata: Json
+          profile_id: string
+          read_at: string | null
+          title: string
+          type: string
+        }
+        Insert: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          metadata?: Json
+          profile_id: string
+          read_at?: string | null
+          title: string
+          type: string
+        }
+        Update: {
+          body?: string | null
+          created_at?: string
+          id?: string
+          is_read?: boolean
+          link?: string | null
+          metadata?: Json
+          profile_id?: string
+          read_at?: string | null
+          title?: string
+          type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_profile_id_fkey"
+            columns: ["profile_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       order_items: {
         Row: {
           created_at: string
@@ -3609,53 +3838,156 @@ export type Database = {
           },
         ]
       }
+      order_status_history: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          from_status: string | null
+          id: string
+          is_test: boolean
+          note: string | null
+          order_id: string
+          to_status: string
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          is_test?: boolean
+          note?: string | null
+          order_id: string
+          to_status: string
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          from_status?: string | null
+          id?: string
+          is_test?: boolean
+          note?: string | null
+          order_id?: string
+          to_status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_status_history_order_id_fkey"
+            columns: ["order_id"]
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       orders: {
         Row: {
-          buyer_member_code: string
-          buyer_profile_id: string
+          access_token: string
+          buyer_member_code: string | null
+          buyer_profile_id: string | null
+          courier: string | null
           created_at: string
+          customer_notes: string | null
+          customer_type: string
+          delivered_at: string | null
+          delivery_zone_id: string | null
+          fulfillment_status: string
+          guest_email: string | null
+          guest_name: string | null
+          guest_phone: string | null
           id: string
+          is_shipping_quoted: boolean
           is_test: boolean
           notes: string | null
           order_number: string
+          payment_method: string | null
           processed_by: string | null
           qualification_source: string | null
           rewards_processed: boolean
           rewards_processed_at: string | null
+          shipped_at: string | null
+          shipping_address: string | null
+          shipping_barangay: string | null
+          shipping_city: string | null
+          shipping_fee: number
+          shipping_postal_code: string | null
+          shipping_province: string | null
           status: string
+          subtotal: number
           total_amount: number
+          tracking_number: string | null
           updated_at: string
         }
         Insert: {
-          buyer_member_code: string
-          buyer_profile_id: string
+          access_token?: string
+          buyer_member_code?: string | null
+          buyer_profile_id?: string | null
+          courier?: string | null
           created_at?: string
+          customer_notes?: string | null
+          customer_type?: string
+          delivered_at?: string | null
+          delivery_zone_id?: string | null
+          fulfillment_status?: string
+          guest_email?: string | null
+          guest_name?: string | null
+          guest_phone?: string | null
           id?: string
+          is_shipping_quoted?: boolean
           is_test?: boolean
           notes?: string | null
           order_number: string
+          payment_method?: string | null
           processed_by?: string | null
           qualification_source?: string | null
           rewards_processed?: boolean
           rewards_processed_at?: string | null
+          shipped_at?: string | null
+          shipping_address?: string | null
+          shipping_barangay?: string | null
+          shipping_city?: string | null
+          shipping_fee?: number
+          shipping_postal_code?: string | null
+          shipping_province?: string | null
           status?: string
+          subtotal?: number
           total_amount?: number
+          tracking_number?: string | null
           updated_at?: string
         }
         Update: {
-          buyer_member_code?: string
-          buyer_profile_id?: string
+          access_token?: string
+          buyer_member_code?: string | null
+          buyer_profile_id?: string | null
+          courier?: string | null
           created_at?: string
+          customer_notes?: string | null
+          customer_type?: string
+          delivered_at?: string | null
+          delivery_zone_id?: string | null
+          fulfillment_status?: string
+          guest_email?: string | null
+          guest_name?: string | null
+          guest_phone?: string | null
           id?: string
+          is_shipping_quoted?: boolean
           is_test?: boolean
           notes?: string | null
           order_number?: string
+          payment_method?: string | null
           processed_by?: string | null
           qualification_source?: string | null
           rewards_processed?: boolean
           rewards_processed_at?: string | null
+          shipped_at?: string | null
+          shipping_address?: string | null
+          shipping_barangay?: string | null
+          shipping_city?: string | null
+          shipping_fee?: number
+          shipping_postal_code?: string | null
+          shipping_province?: string | null
           status?: string
+          subtotal?: number
           total_amount?: number
+          tracking_number?: string | null
           updated_at?: string
         }
         Relationships: [
@@ -3665,17 +3997,73 @@ export type Database = {
             referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "orders_delivery_zone_id_fkey"
+            columns: ["delivery_zone_id"]
+            referencedRelation: "delivery_zones"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      payment_accounts: {
+        Row: {
+          account_name: string | null
+          account_number: string | null
+          bank_name: string | null
+          created_at: string
+          flag_reason: string | null
+          id: string
+          is_active: boolean
+          is_verified: boolean
+          label: string | null
+          method: string
+          qr_image_url: string | null
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          account_name?: string | null
+          account_number?: string | null
+          bank_name?: string | null
+          created_at?: string
+          flag_reason?: string | null
+          id?: string
+          is_active?: boolean
+          is_verified?: boolean
+          label?: string | null
+          method: string
+          qr_image_url?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          account_name?: string | null
+          account_number?: string | null
+          bank_name?: string | null
+          created_at?: string
+          flag_reason?: string | null
+          id?: string
+          is_active?: boolean
+          is_verified?: boolean
+          label?: string | null
+          method?: string
+          qr_image_url?: string | null
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
       }
       payment_proofs: {
         Row: {
           account_name: string | null
           amount: number
           bank_name: string | null
+          guest_email: string | null
+          guest_name: string | null
           id: string
           is_test: boolean
           member_code: string | null
-          member_id: string
+          member_id: string | null
           method: string
           order_id: string
           proof_path: string | null
@@ -3690,10 +4078,12 @@ export type Database = {
           account_name?: string | null
           amount?: number
           bank_name?: string | null
+          guest_email?: string | null
+          guest_name?: string | null
           id?: string
           is_test?: boolean
           member_code?: string | null
-          member_id: string
+          member_id?: string | null
           method: string
           order_id: string
           proof_path?: string | null
@@ -3708,10 +4098,12 @@ export type Database = {
           account_name?: string | null
           amount?: number
           bank_name?: string | null
+          guest_email?: string | null
+          guest_name?: string | null
           id?: string
           is_test?: boolean
           member_code?: string | null
-          member_id?: string
+          member_id?: string | null
           method?: string
           order_id?: string
           proof_path?: string | null
@@ -3866,42 +4258,78 @@ export type Database = {
       }
       products: {
         Row: {
+          brand: string | null
           category: string
           created_at: string
+          description: string | null
+          disclaimer: string | null
+          gallery: Json
           id: string
+          image_url: string | null
           is_active: boolean
+          is_digital: boolean
           membership_code: string | null
           name: string
           product_code: string
           product_type: string
+          promo_price: number | null
+          regular_price: number | null
           selling_price: number
+          short_description: string | null
           sku: string
+          slug: string | null
+          sort_order: number
+          track_inventory: boolean
           updated_at: string
         }
         Insert: {
+          brand?: string | null
           category?: string
           created_at?: string
+          description?: string | null
+          disclaimer?: string | null
+          gallery?: Json
           id?: string
+          image_url?: string | null
           is_active?: boolean
+          is_digital?: boolean
           membership_code?: string | null
           name: string
           product_code: string
           product_type: string
+          promo_price?: number | null
+          regular_price?: number | null
           selling_price?: number
+          short_description?: string | null
           sku: string
+          slug?: string | null
+          sort_order?: number
+          track_inventory?: boolean
           updated_at?: string
         }
         Update: {
+          brand?: string | null
           category?: string
           created_at?: string
+          description?: string | null
+          disclaimer?: string | null
+          gallery?: Json
           id?: string
+          image_url?: string | null
           is_active?: boolean
+          is_digital?: boolean
           membership_code?: string | null
           name?: string
           product_code?: string
           product_type?: string
+          promo_price?: number | null
+          regular_price?: number | null
           selling_price?: number
+          short_description?: string | null
           sku?: string
+          slug?: string | null
+          sort_order?: number
+          track_inventory?: boolean
           updated_at?: string
         }
         Relationships: []
@@ -4244,6 +4672,177 @@ export type Database = {
           },
         ]
       }
+      stock_movements: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          delta: number
+          id: string
+          is_test: boolean
+          movement_type: string
+          note: string | null
+          order_id: string | null
+          product_id: string
+          quantity_after: number
+          quantity_before: number
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          delta: number
+          id?: string
+          is_test?: boolean
+          movement_type: string
+          note?: string | null
+          order_id?: string | null
+          product_id: string
+          quantity_after: number
+          quantity_before: number
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          delta?: number
+          id?: string
+          is_test?: boolean
+          movement_type?: string
+          note?: string | null
+          order_id?: string | null
+          product_id?: string
+          quantity_after?: number
+          quantity_before?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_order_id_fkey"
+            columns: ["order_id"]
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_product_id_fkey"
+            columns: ["product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      stock_reservations: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          id: string
+          order_id: string
+          product_id: string
+          quantity: number
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          order_id: string
+          product_id: string
+          quantity: number
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          id?: string
+          order_id?: string
+          product_id?: string
+          quantity?: number
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_reservations_order_id_fkey"
+            columns: ["order_id"]
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_reservations_product_id_fkey"
+            columns: ["product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      support_tickets: {
+        Row: {
+          assigned_to: string | null
+          category: string
+          created_at: string
+          guest_email: string | null
+          guest_name: string | null
+          id: string
+          is_test: boolean
+          last_reply_at: string | null
+          member_code: string | null
+          member_id: string | null
+          order_id: string | null
+          priority: string
+          status: string
+          subject: string
+          ticket_number: string
+          updated_at: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          category?: string
+          created_at?: string
+          guest_email?: string | null
+          guest_name?: string | null
+          id?: string
+          is_test?: boolean
+          last_reply_at?: string | null
+          member_code?: string | null
+          member_id?: string | null
+          order_id?: string | null
+          priority?: string
+          status?: string
+          subject: string
+          ticket_number: string
+          updated_at?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          category?: string
+          created_at?: string
+          guest_email?: string | null
+          guest_name?: string | null
+          id?: string
+          is_test?: boolean
+          last_reply_at?: string | null
+          member_code?: string | null
+          member_id?: string | null
+          order_id?: string | null
+          priority?: string
+          status?: string
+          subject?: string
+          ticket_number?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "support_tickets_member_id_fkey"
+            columns: ["member_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "support_tickets_order_id_fkey"
+            columns: ["order_id"]
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       system_settings: {
         Row: {
           description: string | null
@@ -4304,6 +4903,55 @@ export type Database = {
         }
         Relationships: []
       }
+      ticket_messages: {
+        Row: {
+          attachment_path: string | null
+          author_label: string | null
+          author_profile_id: string | null
+          author_role: string
+          body: string
+          created_at: string
+          id: string
+          is_internal: boolean
+          ticket_id: string
+        }
+        Insert: {
+          attachment_path?: string | null
+          author_label?: string | null
+          author_profile_id?: string | null
+          author_role?: string
+          body: string
+          created_at?: string
+          id?: string
+          is_internal?: boolean
+          ticket_id: string
+        }
+        Update: {
+          attachment_path?: string | null
+          author_label?: string | null
+          author_profile_id?: string | null
+          author_role?: string
+          body?: string
+          created_at?: string
+          id?: string
+          is_internal?: boolean
+          ticket_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ticket_messages_author_profile_id_fkey"
+            columns: ["author_profile_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ticket_messages_ticket_id_fkey"
+            columns: ["ticket_id"]
+            referencedRelation: "support_tickets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string
@@ -4353,6 +5001,75 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_admin_export: {
+        Args: { p_actor: string; p_dataset: string; p_filters?: Json }
+        Returns: Json
+      }
+      kmd_admin_review_payment_account: {
+        Args: {
+          p_account_id: string
+          p_actor: string
+          p_flag_reason?: string
+          p_verified: boolean
+        }
+        Returns: Json
+      }
+      kmd_admin_set_bundle: {
+        Args: {
+          p_actor: string
+          p_bundle_product_id: string
+          p_components: Json
+        }
+        Returns: Json
+      }
+      kmd_admin_set_fulfillment: {
+        Args: {
+          p_actor: string
+          p_courier?: string
+          p_note?: string
+          p_order_id: string
+          p_status: string
+          p_tracking?: string
+        }
+        Returns: Json
+      }
+      kmd_admin_set_stock: {
+        Args: {
+          p_actor: string
+          p_is_unlimited?: boolean
+          p_low_stock_threshold?: number
+          p_note?: string
+          p_product_id: string
+          p_quantity: number
+        }
+        Returns: Json
+      }
+      kmd_admin_ticket_update: {
+        Args: {
+          p_actor: string
+          p_assigned_to?: string
+          p_priority?: string
+          p_status?: string
+          p_ticket_id: string
+        }
+        Returns: Json
+      }
+      kmd_admin_upsert_content: {
+        Args: { p_actor: string; p_payload: Json }
+        Returns: Json
+      }
+      kmd_admin_upsert_delivery_zone: {
+        Args: { p_actor: string; p_payload: Json }
+        Returns: Json
+      }
+      kmd_admin_upsert_payment_account: {
+        Args: { p_actor: string; p_payload: Json }
+        Returns: Json
+      }
+      kmd_admin_upsert_product: {
+        Args: { p_actor: string; p_payload: Json }
+        Returns: Json
+      }
       kmd_audit: {
         Args: {
           p_action: string
@@ -4375,6 +5092,22 @@ export type Database = {
           p_new_sponsor: string
           p_reason?: string
         }
+        Returns: Json
+      }
+      kmd_checkout_place_order: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
+      kmd_checkout_quote: {
+        Args: { p_items: Json; p_zone_id?: string }
+        Returns: Json
+      }
+      kmd_checkout_submit_proof: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
+      kmd_checkout_track_order: {
+        Args: { p_contact: string; p_order_number: string }
         Returns: Json
       }
       kmd_confirm_payment: {
@@ -4442,8 +5175,27 @@ export type Database = {
         Args: { p_member: string }
         Returns: Json
       }
+      kmd_notifications_mark_read: {
+        Args: { p_ids?: string[] }
+        Returns: Json
+      }
+      kmd_notify: {
+        Args: {
+          p_body?: string
+          p_link?: string
+          p_metadata?: Json
+          p_profile: string
+          p_title: string
+          p_type: string
+        }
+        Returns: string
+      }
       kmd_process_qualified_purchase: {
         Args: { p_actor?: string; p_order_id: string }
+        Returns: Json
+      }
+      kmd_readiness_report: {
+        Args: Record<PropertyKey, never>
         Returns: Json
       }
       kmd_rebuild_closure: {
@@ -4521,9 +5273,37 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_settings_public: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       kmd_sponsor_preview: {
         Args: { p_code: string }
         Returns: Json
+      }
+      kmd_stock_commit: {
+        Args: { p_actor?: string; p_order_id: string }
+        Returns: undefined
+      }
+      kmd_stock_release: {
+        Args: { p_actor?: string; p_order_id: string; p_reason?: string }
+        Returns: undefined
+      }
+      kmd_storefront_catalog: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
+      kmd_ticket_create: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
+      kmd_ticket_reply: {
+        Args: { p_body: string; p_is_internal?: boolean; p_ticket_id: string }
+        Returns: Json
+      }
+      kmd_try_uuid: {
+        Args: { p_text: string }
+        Returns: string
       }
       kmd_update_package: {
         Args: {
@@ -4749,6 +5529,39 @@ export type Database = {
         Relationships: []
       }
       messages_2026_10_09: {
+        Row: {
+          event: string | null
+          extension: string
+          id: string
+          inserted_at: string
+          payload: Json | null
+          private: boolean | null
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          event?: string | null
+          extension: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          event?: string | null
+          extension?: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      messages_2026_10_10: {
         Row: {
           event: string | null
           extension: string

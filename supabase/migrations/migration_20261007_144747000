@@ -1,0 +1,257 @@
+-- KMD EMPIRE migration 11 · fulfilment, stock commit/release, admin operations, exports
+
+-- ============================================================
+-- 1. payment confirmation now also commits stock and notifies the buyer.
+--    The reward engine call is unchanged.
+-- ============================================================
+create or replace function public.kmd_confirm_payment(
+  p_order_id uuid,
+  p_actor uuid default null,
+  p_qualification_source text default 'payment_confirmed'
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_result jsonb;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','PURCHASE DB RECORD NOT FOUND for this order ID');
+  end if;
+
+  if v_order.status in ('cancelled','rejected') then
+    return jsonb_build_object('status','FAILED','reason','ORDER_NOT_CONFIRMABLE',
+      'reasonText','A ' || v_order.status || ' order cannot be confirmed');
+  end if;
+
+  if v_order.status = 'confirmed' and v_order.rewards_processed then
+    return jsonb_build_object('status','ALREADY_PROCESSED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','REWARD ALREADY PROCESSED FOR THIS TRANSACTION',
+      'orderNumber', v_order.order_number, 'processedAt', v_order.rewards_processed_at);
+  end if;
+
+  update public.payment_proofs
+    set status = 'confirmed', reviewed_by = p_actor, reviewed_at = now()
+    where order_id = p_order_id and status <> 'confirmed';
+
+  update public.orders
+    set status = 'confirmed',
+        qualification_source = coalesce(p_qualification_source, 'payment_confirmed')
+    where id = p_order_id;
+
+  insert into public.order_status_history (order_id, from_status, to_status, note, actor_id, is_test)
+  values (p_order_id, v_order.status, 'confirmed', 'Payment confirmed', p_actor, v_order.is_test);
+
+  perform public.kmd_audit(p_actor, 'PAYMENT_CONFIRMATION', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text,
+    jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status', 'confirmed'),
+    'Payment confirmed for ' || v_order.order_number, v_order.is_test);
+
+  -- Stock leaves the shelf only now that the purchase is verified.
+  perform public.kmd_stock_commit(p_order_id, p_actor);
+
+  if v_order.buyer_profile_id is null then
+    -- A guest purchase has no member buyer, so there is no sponsor chain to pay.
+    -- This is recorded explicitly rather than silently skipped.
+    update public.orders set rewards_processed = true, rewards_processed_at = now() where id = p_order_id;
+    perform public.kmd_audit(p_actor, 'REWARDS_NOT_APPLICABLE', null, p_order_id,
+      'orders', p_order_id::text, null, jsonb_build_object('customerType','guest'),
+      'Guest purchase: no member buyer, so the Unilevel distribution does not apply', v_order.is_test);
+
+    perform public.kmd_notify(v_order.buyer_profile_id, 'order.confirmed',
+      'Payment confirmed for ' || v_order.order_number,
+      'Thank you. We are preparing your order.', null,
+      jsonb_build_object('orderNumber', v_order.order_number));
+
+    return jsonb_build_object('status','CONFIRMED','reason','GUEST_PURCHASE_NO_REWARDS',
+      'reasonText','Payment confirmed. Guest purchase - no Unilevel rewards apply.',
+      'orderNumber', v_order.order_number, 'customerType','guest');
+  end if;
+
+  v_result := public.kmd_process_qualified_purchase(p_order_id, p_actor);
+
+  perform public.kmd_notify(v_order.buyer_profile_id, 'order.confirmed',
+    'Payment confirmed for ' || v_order.order_number,
+    'Your payment has been verified and your rewards have been posted.',
+    '/app/orders', jsonb_build_object('orderNumber', v_order.order_number));
+
+  return v_result || jsonb_build_object('orderNumber', v_order.order_number,
+    'buyerMemberCode', v_order.buyer_member_code,
+    'stockCommitted', true);
+end $$;
+
+create or replace function public.kmd_reject_payment(p_order_id uuid, p_actor uuid default null, p_reason text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+begin
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','Purchase DB record not found');
+  end if;
+  if v_order.rewards_processed then
+    return jsonb_build_object('status','FAILED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','Rewards were already issued for this order - reverse them instead of rejecting');
+  end if;
+
+  update public.payment_proofs set status = 'rejected', reviewed_by = p_actor, reviewed_at = now(),
+    review_notes = p_reason where order_id = p_order_id and status <> 'rejected';
+  update public.orders set status = 'rejected' where id = p_order_id;
+
+  insert into public.order_status_history (order_id, from_status, to_status, note, actor_id, is_test)
+  values (p_order_id, v_order.status, 'rejected', coalesce(p_reason,'Payment rejected'), p_actor, v_order.is_test);
+
+  -- Rejecting returns the reserved stock to the shelf.
+  perform public.kmd_stock_release(p_order_id, p_actor, 'Reservation released after payment rejection');
+
+  perform public.kmd_audit(p_actor, 'PAYMENT_REJECTION', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text, jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status','rejected'), coalesce(p_reason,'Payment rejected'), v_order.is_test);
+
+  perform public.kmd_notify(v_order.buyer_profile_id, 'payment.rejected',
+    'Payment could not be verified for ' || v_order.order_number,
+    coalesce(p_reason,'Please check your payment details and submit a new proof.'),
+    '/track', jsonb_build_object('orderNumber', v_order.order_number));
+
+  return jsonb_build_object('status','REJECTED','orderNumber', v_order.order_number,
+    'reasonText','Payment rejected');
+end $$;
+
+create or replace function public.kmd_set_order_status(p_order_id uuid, p_status text, p_actor uuid default null, p_reason text default null)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+begin
+  if p_status not in ('pending_payment','proof_submitted','under_review','cancelled') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_ORDER_STATUS',
+      'reasonText','Unsupported order status: ' || coalesce(p_status,'(none)'));
+  end if;
+
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_PURCHASE_RECORD_NOT_FOUND',
+      'reasonText','Purchase DB record not found');
+  end if;
+  if v_order.rewards_processed then
+    return jsonb_build_object('status','FAILED','reason','REWARD_ALREADY_PROCESSED',
+      'reasonText','Rewards were already issued for this order');
+  end if;
+
+  update public.orders set status = p_status where id = p_order_id;
+
+  insert into public.order_status_history (order_id, from_status, to_status, note, actor_id, is_test)
+  values (p_order_id, v_order.status, p_status, coalesce(p_reason,'Order status updated'), p_actor, v_order.is_test);
+
+  if p_status = 'cancelled' then
+    perform public.kmd_stock_release(p_order_id, p_actor, 'Reservation released on cancellation');
+    update public.orders set fulfillment_status = 'cancelled' where id = p_order_id;
+  end if;
+
+  perform public.kmd_audit(p_actor, 'ORDER_STATUS_CHANGE', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text, jsonb_build_object('status', v_order.status),
+    jsonb_build_object('status', p_status), coalesce(p_reason,'Order status updated'), v_order.is_test);
+
+  return jsonb_build_object('status','UPDATED','orderStatus', p_status,
+    'reasonText','Order status updated to ' || p_status);
+end $$;
+
+create or replace function public.kmd_admin_set_fulfillment(
+  p_actor uuid, p_order_id uuid, p_status text,
+  p_courier text default null, p_tracking text default null, p_note text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if p_status not in ('unfulfilled','preparing','shipped','delivered','cancelled') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_FULFILLMENT_STATUS',
+      'reasonText','Unsupported fulfilment status: ' || coalesce(p_status,'(none)'));
+  end if;
+
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_NOT_FOUND','reasonText','Order not found');
+  end if;
+
+  update public.orders set
+    fulfillment_status = p_status,
+    courier = coalesce(nullif(trim(coalesce(p_courier,'')), ''), courier),
+    tracking_number = coalesce(nullif(trim(coalesce(p_tracking,'')), ''), tracking_number),
+    shipped_at = case when p_status = 'shipped' and shipped_at is null then now() else shipped_at end,
+    delivered_at = case when p_status = 'delivered' then coalesce(delivered_at, now()) else delivered_at end
+  where id = p_order_id;
+
+  insert into public.order_status_history (order_id, from_status, to_status, note, actor_id, is_test)
+  values (p_order_id, v_order.fulfillment_status, p_status,
+          coalesce(p_note, 'Fulfilment status set to ' || p_status), p_actor, v_order.is_test);
+
+  perform public.kmd_audit(p_actor, 'ORDER_FULFILLMENT', v_order.buyer_profile_id, p_order_id,
+    'orders', p_order_id::text,
+    jsonb_build_object('fulfillmentStatus', v_order.fulfillment_status),
+    jsonb_build_object('fulfillmentStatus', p_status, 'courier', p_courier, 'trackingNumber', p_tracking),
+    coalesce(p_note, 'Fulfilment updated'), v_order.is_test);
+
+  perform public.kmd_notify(v_order.buyer_profile_id, 'order.fulfillment',
+    'Order ' || v_order.order_number || ' is now ' || p_status,
+    case when p_status = 'shipped' then 'Your parcel is on the way.' else null end,
+    '/app/orders', jsonb_build_object('orderNumber', v_order.order_number, 'status', p_status));
+
+  return jsonb_build_object('status','UPDATED','fulfillmentStatus', p_status,
+    'reasonText','Fulfilment status updated');
+end $$;
+
+grant execute on function public.kmd_admin_set_fulfillment(uuid, uuid, text, text, text, text) to service_role;
+
+-- ============================================================
+-- 2. readiness report — derived from real state, never a static list
+-- ============================================================
+create or replace function public.kmd_readiness_report()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_array(
+    jsonb_build_object('key','super_admin','label','A super administrator account exists',
+      'status', case when exists (select 1 from public.user_roles where role in ('admin','super_admin')) then 'ok' else 'critical' end,
+      'detail', (select count(*)::text || ' administrator account(s)' from public.user_roles where role in ('admin','super_admin')),
+      'actionPath','/admin/members','actionLabel','Members'),
+    jsonb_build_object('key','delivery_fees','label','Every delivery area has an owner-supplied fee',
+      'status', case when exists (select 1 from public.delivery_zones where is_active and not is_configured) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' area(s) still show a shipping quote pending' from public.delivery_zones where is_active and not is_configured),
+      'actionPath','/admin/delivery-zones','actionLabel','Delivery & Shipping'),
+    jsonb_build_object('key','payment_accounts','label','Every payment account is owner-verified',
+      'status', case when exists (select 1 from public.payment_accounts where is_active and not is_verified) then 'todo' else 'ok' end,
+      'detail', (select count(*)::text || ' account(s) hidden from checkout pending verification' from public.payment_accounts where is_active and not is_verified),
+      'actionPath','/admin/payment-accounts','actionLabel','Payment Accounts'),
+    jsonb_build_object('key','package_prices','label','Membership packages have a price',
+      'status', case when exists (select 1 from public.products p join public.membership_packages mp on mp.product_id = p.id where mp.is_active and p.selling_price <= 0) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' active package(s) priced at zero and cannot be sold' from public.products p join public.membership_packages mp on mp.product_id = p.id where mp.is_active and p.selling_price <= 0),
+      'actionPath','/admin/packages','actionLabel','Membership Packages'),
+    jsonb_build_object('key','product_images','label','Every sellable product has an image',
+      'status', case when exists (select 1 from public.products where is_active and product_type in ('retail','reorder','digital') and coalesce(image_url,'') = '') then 'todo' else 'ok' end,
+      'detail', (select count(*)::text || ' product(s) without an image' from public.products where is_active and product_type in ('retail','reorder','digital') and coalesce(image_url,'') = ''),
+      'actionPath','/admin/catalog','actionLabel','Catalogue'),
+    jsonb_build_object('key','stock','label','Stock is recorded for every shipped product',
+      'status', case when exists (select 1 from public.products p left join public.inventory i on i.product_id = p.id where p.is_active and p.track_inventory and not p.is_digital and (i.product_id is null or (not i.is_unlimited and i.quantity_on_hand = 0))) then 'todo' else 'ok' end,
+      'detail', (select count(*)::text || ' shipped product(s) with no stock on hand' from public.products p left join public.inventory i on i.product_id = p.id where p.is_active and p.track_inventory and not p.is_digital and (i.product_id is null or (not i.is_unlimited and i.quantity_on_hand = 0))),
+      'actionPath','/admin/inventory','actionLabel','Inventory'),
+    jsonb_build_object('key','reward_values','label','Reward values are configured where rewards are due',
+      'status', case when exists (select 1 from public.products p join public.reward_configurations r on r.product_id = p.id where p.is_active and p.product_type in ('membership','bundle','reorder') and r.level1_points = 0 and r.level2_points = 0 and r.level3_points = 0 and r.level4_points = 0 and r.level5_points = 0) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' reward-bearing product(s) still at zero' from public.products p join public.reward_configurations r on r.product_id = p.id where p.is_active and p.product_type in ('membership','bundle','reorder') and r.level1_points = 0 and r.level2_points = 0 and r.level3_points = 0 and r.level4_points = 0 and r.level5_points = 0),
+      'actionPath','/admin/reward-configuration','actionLabel','Reward Configuration'),
+    jsonb_build_object('key','content','label','At least one article is published',
+      'status', case when exists (select 1 from public.content_posts where is_published) then 'ok' else 'todo' end,
+      'detail', (select count(*)::text || ' published article(s)' from public.content_posts where is_published),
+      'actionPath','/admin/content','actionLabel','Content'),
+    jsonb_build_object('key','video_testimonials','label','Video testimonies published (no video assets were supplied)',
+      'status','todo','detail','The design document promises video testimonies but supplies no video files.',
+      'actionPath','/admin/content','actionLabel','Content')
+  );
+$$;
+
+grant execute on function public.kmd_readiness_report() to authenticated;

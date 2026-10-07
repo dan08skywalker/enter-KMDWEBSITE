@@ -108,9 +108,16 @@ export function levelLabel(level?: number | null): string {
   return `Level ${level}`;
 }
 
+/**
+ * Status pill tones.
+ *
+ * `accent` is used rather than `gold` for the text colour: raw gold on a light
+ * surface fails WCAG AA, and `--accent` is defined as a deep bronze in light
+ * mode and bright gold in dark mode precisely so pills stay readable in both.
+ */
 export const toneClasses: Record<Tone, string> = {
   neutral: "border-border bg-muted text-muted-foreground",
-  gold: "border-gold/30 bg-gold/12 text-[hsl(var(--gold))]",
+  gold: "border-accent/35 bg-gold/12 text-accent",
   success: "border-success/30 bg-success/12 text-[hsl(var(--success))]",
   warning: "border-warning/30 bg-warning/12 text-[hsl(var(--warning))]",
   danger: "border-destructive/30 bg-destructive/12 text-destructive",

@@ -230,8 +230,112 @@ Deno.serve(async (req) => {
           p_is_active: body?.isActive !== false,
         });
 
-      case "proof_url": {
-        // Proof files live in a private bucket, so the administrator is handed a
+      // ---- storefront catalogue, stock, delivery and payment accounts ----
+
+      case "save_product":
+        return run("kmd_admin_upsert_product", {
+          p_actor: actorId,
+          p_payload: body?.payload ?? {},
+        });
+
+      case "set_stock":
+        return run("kmd_admin_set_stock", {
+          p_actor: actorId,
+          p_product_id: String(body?.productId ?? ""),
+          p_quantity: Number(body?.quantity ?? 0),
+          p_note: reason ?? "Stock adjusted by administrator",
+          p_low_stock_threshold:
+            body?.lowStockThreshold === undefined || body?.lowStockThreshold === null
+              ? null
+              : Number(body.lowStockThreshold),
+          p_is_unlimited:
+            body?.isUnlimited === undefined || body?.isUnlimited === null
+              ? null
+              : body.isUnlimited === true,
+        });
+
+      case "save_delivery_zone":
+        return run("kmd_admin_upsert_delivery_zone", {
+          p_actor: actorId,
+          p_payload: body?.payload ?? {},
+        });
+
+      case "save_payment_account":
+        return run("kmd_admin_upsert_payment_account", {
+          p_actor: actorId,
+          p_payload: body?.payload ?? {},
+        });
+
+      case "review_payment_account":
+        return run("kmd_admin_review_payment_account", {
+          p_actor: actorId,
+          p_account_id: String(body?.accountId ?? ""),
+          p_verified: body?.verified === true,
+          p_flag_reason: reason,
+        });
+
+      case "set_fulfillment":
+        return run("kmd_admin_set_fulfillment", {
+          p_actor: actorId,
+          p_order_id: String(body?.orderId ?? ""),
+          p_status: String(body?.status ?? ""),
+          p_courier: body?.courier ?? null,
+          p_tracking: body?.trackingNumber ?? null,
+          p_note: reason,
+        });
+
+      case "set_bundle":
+        return run("kmd_admin_set_bundle", {
+          p_actor: actorId,
+          p_bundle_product_id: String(body?.bundleProductId ?? ""),
+          p_components: body?.components ?? [],
+        });
+
+      case "save_content":
+        return run("kmd_admin_upsert_content", {
+          p_actor: actorId,
+          p_payload: body?.payload ?? {},
+        });
+
+      case "update_ticket":
+        return run("kmd_admin_ticket_update", {
+          p_actor: actorId,
+          p_ticket_id: String(body?.ticketId ?? ""),
+          p_status: body?.status ?? null,
+          p_priority: body?.priority ?? null,
+          p_assigned_to: body?.assignedTo ? String(body.assignedTo) : null,
+        });
+
+      case "readiness":
+        return run("kmd_readiness_report", {});
+
+      case "export_data":
+        return run("kmd_admin_export", {
+          p_actor: actorId,
+          p_dataset: String(body?.dataset ?? ""),
+          p_filters: body?.filters ?? {},
+        });
+
+      case "support_attachment_url": {
+        // Support attachments and payment proofs live in private buckets, so staff
+        // receive a short-lived signed link instead of a public object URL.
+        const path = String(body?.path ?? "");
+        const bucket = String(body?.bucket ?? "support-attachments");
+        if (!path) {
+          return json({ error: "MISSING_PATH", message: "An object path is required" }, 400);
+        }
+        const { data: signed, error: signError } = await svc.storage
+          .from(bucket)
+          .createSignedUrl(path, 3600);
+
+        if (signError || !signed?.signedUrl) {
+          console.error("admin-actions support_attachment_url signing failed:", signError?.message);
+          return json({ error: "SIGNING_FAILED", message: "Could not create a secure link" }, 500);
+        }
+        return json({ ok: true, url: signed.signedUrl });
+      }
+
+      case "proof_url": {        // Proof files live in a private bucket, so the administrator is handed a
         // short-lived signed link rather than a public object URL.
         const orderId = String(body?.orderId ?? "");
         const { data: proof, error: proofError } = await svc

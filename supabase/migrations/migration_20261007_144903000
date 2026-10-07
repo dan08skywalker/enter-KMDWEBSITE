@@ -1,0 +1,288 @@
+-- KMD EMPIRE migration 13 · support tickets, notifications, content, exports, storage
+-- The DROP POLICY IF EXISTS guards on storage.objects target policy names that this
+-- same script creates, scoped to buckets created above ('product-images',
+-- 'payment-proofs', 'support-attachments'). No pre-existing policy or object is removed.
+
+create or replace function public.kmd_ticket_create(p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_profile public.profiles%rowtype;
+  v_id uuid;
+  v_number text;
+  v_subject text := nullif(trim(coalesce(p_payload->>'subject','')), '');
+  v_body text := nullif(trim(coalesce(p_payload->>'message','')), '');
+  v_guest_name text := nullif(trim(coalesce(p_payload->>'name','')), '');
+  v_guest_email text := lower(nullif(trim(coalesce(p_payload->>'email','')), ''));
+  v_category text := coalesce(nullif(trim(coalesce(p_payload->>'category','')), ''), 'general');
+  v_is_test boolean := false;
+begin
+  if v_subject is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Please add a subject.');
+  end if;
+  if v_body is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Please describe your concern.');
+  end if;
+  if v_category not in ('general','order','payment','delivery','product','account','digital_service') then
+    v_category := 'general';
+  end if;
+
+  if v_uid is not null then
+    select * into v_profile from public.profiles where id = v_uid;
+    if found then
+      v_guest_name := coalesce(v_guest_name, v_profile.full_name);
+      v_guest_email := coalesce(v_guest_email, lower(v_profile.email));
+      v_is_test := v_profile.is_test;
+    end if;
+  end if;
+
+  if v_guest_email is null or v_guest_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','A valid email address is required.');
+  end if;
+
+  v_number := 'KMD-TKT-' || lpad(nextval('public.kmd_ticket_seq')::text, 6, '0');
+
+  insert into public.support_tickets (
+    ticket_number, member_id, member_code, guest_name, guest_email, order_id,
+    subject, category, priority, status, last_reply_at, is_test
+  ) values (
+    v_number, v_profile.id, v_profile.member_code, v_guest_name, v_guest_email,
+    public.kmd_try_uuid(p_payload->>'orderId'), v_subject, v_category, 'normal', 'open', now(), v_is_test
+  ) returning id into v_id;
+
+  insert into public.ticket_messages (ticket_id, author_profile_id, author_role, author_label, body)
+  values (v_id, v_profile.id, 'customer', v_guest_name, v_body);
+
+  insert into public.notifications (profile_id, type, title, body, link, metadata)
+  select ur.user_id, 'ticket.created', 'New support ticket ' || v_number, v_subject, '/admin/support',
+         jsonb_build_object('ticketId', v_id, 'ticketNumber', v_number)
+  from public.user_roles ur where ur.role in ('admin','super_admin');
+
+  return jsonb_build_object('status','CREATED','ticketId', v_id, 'ticketNumber', v_number,
+    'reasonText','Thank you. Your message is with our team and we will reply during business hours.');
+end $$;
+
+create or replace function public.kmd_ticket_reply(p_ticket_id uuid, p_body text, p_is_internal boolean default false)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_ticket public.support_tickets%rowtype;
+  v_is_admin boolean;
+  v_body text := nullif(trim(coalesce(p_body,'')), '');
+begin
+  if v_uid is null then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Please sign in to reply.');
+  end if;
+  if v_body is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Write a message before sending.');
+  end if;
+
+  select * into v_ticket from public.support_tickets where id = p_ticket_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','TICKET_NOT_FOUND','reasonText','Ticket not found.');
+  end if;
+
+  v_is_admin := public.kmd_is_admin(v_uid);
+  if not v_is_admin and v_ticket.member_id is distinct from v_uid then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','This ticket is not yours.');
+  end if;
+  if p_is_internal and not v_is_admin then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Internal notes are for staff only.');
+  end if;
+
+  insert into public.ticket_messages (ticket_id, author_profile_id, author_role, body, is_internal)
+  values (p_ticket_id, v_uid, case when v_is_admin then 'staff' else 'customer' end, v_body, coalesce(p_is_internal,false));
+
+  update public.support_tickets set
+    last_reply_at = now(),
+    status = case when v_is_admin and not coalesce(p_is_internal,false) then 'waiting_customer'
+                  when not v_is_admin then 'open'
+                  else status end
+  where id = p_ticket_id;
+
+  perform public.kmd_notify(
+    case when v_is_admin then v_ticket.member_id else null end,
+    'ticket.reply', 'Reply on ticket ' || v_ticket.ticket_number, left(v_body, 140), '/app/support',
+    jsonb_build_object('ticketId', p_ticket_id));
+
+  return jsonb_build_object('status','UPDATED','reasonText','Reply sent.');
+end $$;
+
+create or replace function public.kmd_admin_ticket_update(
+  p_actor uuid, p_ticket_id uuid, p_status text default null,
+  p_priority text default null, p_assigned_to uuid default null
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_ticket public.support_tickets%rowtype;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if p_status is not null and p_status not in ('open','in_progress','waiting_customer','resolved','closed') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_STATUS','reasonText','Unsupported ticket status');
+  end if;
+  if p_priority is not null and p_priority not in ('low','normal','high','urgent') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_PRIORITY','reasonText','Unsupported priority');
+  end if;
+
+  select * into v_ticket from public.support_tickets where id = p_ticket_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','TICKET_NOT_FOUND','reasonText','Ticket not found');
+  end if;
+
+  update public.support_tickets set
+    status = coalesce(p_status, status),
+    priority = coalesce(p_priority, priority),
+    assigned_to = coalesce(p_assigned_to, assigned_to)
+  where id = p_ticket_id;
+
+  perform public.kmd_audit(p_actor, 'TICKET_UPDATED', v_ticket.member_id, null, 'support_tickets',
+    p_ticket_id::text, jsonb_build_object('status', v_ticket.status, 'priority', v_ticket.priority),
+    jsonb_build_object('status', p_status, 'priority', p_priority), 'Ticket updated', v_ticket.is_test);
+
+  return jsonb_build_object('status','UPDATED','reasonText','Ticket updated.');
+end $$;
+
+create or replace function public.kmd_notifications_mark_read(p_ids uuid[] default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_count int;
+begin
+  if v_uid is null then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Please sign in.');
+  end if;
+
+  update public.notifications set is_read = true, read_at = now()
+  where profile_id = v_uid and not is_read
+    and (p_ids is null or id = any(p_ids));
+  get diagnostics v_count = row_count;
+
+  return jsonb_build_object('status','UPDATED','markedRead', v_count, 'reasonText','Notifications marked as read.');
+end $$;
+
+create or replace function public.kmd_admin_upsert_content(p_actor uuid, p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid := public.kmd_try_uuid(p_payload->>'id');
+  v_row public.content_posts%rowtype;
+  v_publish boolean := coalesce((p_payload->>'isPublished')::boolean, false);
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if nullif(trim(coalesce(p_payload->>'title','')), '') is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','A title is required');
+  end if;
+  if coalesce(nullif(trim(coalesce(p_payload->>'slug','')), ''), '') = '' then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','A slug is required');
+  end if;
+
+  if v_id is null then
+    insert into public.content_posts (slug, title, excerpt, body, category, cover_image_url,
+      link_url, is_published, is_pinned, published_at, author_id)
+    values (trim(p_payload->>'slug'), trim(p_payload->>'title'),
+            nullif(trim(coalesce(p_payload->>'excerpt','')), ''),
+            nullif(trim(coalesce(p_payload->>'body','')), ''),
+            coalesce(nullif(trim(coalesce(p_payload->>'category','')), ''), 'blog'),
+            nullif(trim(coalesce(p_payload->>'coverImageUrl','')), ''),
+            nullif(trim(coalesce(p_payload->>'linkUrl','')), ''),
+            v_publish, coalesce((p_payload->>'isPinned')::boolean, false),
+            case when v_publish then now() else null end, p_actor)
+    returning * into v_row;
+  else
+    update public.content_posts set
+      slug = trim(p_payload->>'slug'),
+      title = trim(p_payload->>'title'),
+      excerpt = nullif(trim(coalesce(p_payload->>'excerpt','')), ''),
+      body = nullif(trim(coalesce(p_payload->>'body','')), ''),
+      category = coalesce(nullif(trim(coalesce(p_payload->>'category','')), ''), category),
+      cover_image_url = nullif(trim(coalesce(p_payload->>'coverImageUrl','')), ''),
+      link_url = nullif(trim(coalesce(p_payload->>'linkUrl','')), ''),
+      is_pinned = coalesce((p_payload->>'isPinned')::boolean, is_pinned),
+      is_published = v_publish,
+      published_at = case when v_publish then coalesce(published_at, now()) else null end
+    where id = v_id returning * into v_row;
+  end if;
+
+  perform public.kmd_audit(p_actor, 'CONTENT_SAVED', null, null, 'content_posts', v_row.id::text,
+    null, to_jsonb(v_row), 'Content ' || v_row.slug || ' saved', false);
+
+  return jsonb_build_object('status','UPDATED','contentId', v_row.id,
+    'reasonText', case when v_row.is_published then 'Published.' else 'Saved as a draft.' end);
+end $$;
+
+create or replace function public.kmd_admin_set_bundle(p_actor uuid, p_bundle_product_id uuid, p_components jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_item jsonb;
+  v_count int := 0;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if not exists (select 1 from public.products where id = p_bundle_product_id) then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND','reasonText','Bundle product not found');
+  end if;
+
+  delete from public.bundle_components where bundle_product_id = p_bundle_product_id;
+
+  for v_item in select * from jsonb_array_elements(coalesce(p_components, '[]'::jsonb)) loop
+    if public.kmd_try_uuid(v_item->>'productId') is not null
+       and public.kmd_try_uuid(v_item->>'productId') <> p_bundle_product_id then
+      insert into public.bundle_components (bundle_product_id, component_product_id, quantity)
+      values (p_bundle_product_id, public.kmd_try_uuid(v_item->>'productId'),
+              greatest(coalesce((v_item->>'quantity')::int, 1), 1))
+      on conflict (bundle_product_id, component_product_id)
+        do update set quantity = excluded.quantity;
+      v_count := v_count + 1;
+    end if;
+  end loop;
+
+  perform public.kmd_audit(p_actor, 'BUNDLE_SAVED', null, null, 'bundle_components', p_bundle_product_id::text,
+    null, jsonb_build_object('componentCount', v_count), 'Bundle composition saved', false);
+
+  return jsonb_build_object('status','UPDATED','componentCount', v_count,
+    'reasonText', v_count || ' component(s) saved. Reward policy: ' ||
+      coalesce((select value #>> '{}' from public.system_settings where key = 'bundle_reward_policy'), 'bundle_sku'));
+end $$;
+
+grant execute on function public.kmd_ticket_create(jsonb) to anon, authenticated;
+grant execute on function public.kmd_ticket_reply(uuid, text, boolean) to authenticated;
+grant execute on function public.kmd_notifications_mark_read(uuid[]) to authenticated;
+grant execute on function public.kmd_admin_ticket_update(uuid, uuid, text, text, uuid) to service_role;
+grant execute on function public.kmd_admin_upsert_content(uuid, jsonb) to service_role;
+grant execute on function public.kmd_admin_set_bundle(uuid, uuid, jsonb) to service_role;
+
+insert into storage.buckets (id, name, public) values
+  ('product-images', 'product-images', true),
+  ('payment-proofs', 'payment-proofs', false),
+  ('support-attachments', 'support-attachments', false)
+on conflict (id) do nothing;
+
+drop policy if exists kmd_product_images_read on storage.objects;
+create policy kmd_product_images_read on storage.objects
+  for select to anon, authenticated using (bucket_id = 'product-images');
+drop policy if exists kmd_product_images_write on storage.objects;
+create policy kmd_product_images_write on storage.objects
+  for insert to authenticated with check (bucket_id = 'product-images' and public.kmd_is_admin(auth.uid()));
+drop policy if exists kmd_product_images_update on storage.objects;
+create policy kmd_product_images_update on storage.objects
+  for update to authenticated using (bucket_id = 'product-images' and public.kmd_is_admin(auth.uid()));
+drop policy if exists kmd_product_images_delete on storage.objects;
+create policy kmd_product_images_delete on storage.objects
+  for delete to authenticated using (bucket_id = 'product-images' and public.kmd_is_admin(auth.uid()));
+
+drop policy if exists kmd_payment_proofs_insert on storage.objects;
+create policy kmd_payment_proofs_insert on storage.objects
+  for insert to anon, authenticated with check (bucket_id = 'payment-proofs');
+drop policy if exists kmd_payment_proofs_read on storage.objects;
+create policy kmd_payment_proofs_read on storage.objects
+  for select to authenticated using (bucket_id = 'payment-proofs' and public.kmd_is_admin(auth.uid()));
+
+drop policy if exists kmd_support_attachments_insert on storage.objects;
+create policy kmd_support_attachments_insert on storage.objects
+  for insert to anon, authenticated with check (bucket_id = 'support-attachments');
+drop policy if exists kmd_support_attachments_read on storage.objects;
+create policy kmd_support_attachments_read on storage.objects
+  for select to authenticated using (bucket_id = 'support-attachments' and public.kmd_is_admin(auth.uid()));

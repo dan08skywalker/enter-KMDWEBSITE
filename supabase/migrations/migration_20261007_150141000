@@ -1,0 +1,105 @@
+-- Extend stock adjustment to cover the low-stock threshold and the unlimited flag,
+-- so the Inventory page has no read-only controls.
+create or replace function public.kmd_admin_set_stock(
+  p_actor uuid, p_product_id uuid, p_quantity int, p_note text default null,
+  p_low_stock_threshold int default null, p_is_unlimited boolean default null
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_row public.inventory%rowtype;
+  v_before int;
+  v_threshold int;
+  v_unlimited boolean;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if p_quantity is null or p_quantity < 0 then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Stock cannot be negative');
+  end if;
+  if p_low_stock_threshold is not null and p_low_stock_threshold < 0 then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','The low-stock threshold cannot be negative');
+  end if;
+
+  select * into v_row from public.inventory where product_id = p_product_id for update;
+  if not found then
+    insert into public.inventory (product_id, quantity_on_hand, low_stock_threshold, is_unlimited, updated_by)
+    values (p_product_id, p_quantity, coalesce(p_low_stock_threshold, 5), coalesce(p_is_unlimited, false), p_actor)
+    returning * into v_row;
+    v_before := 0;
+    v_threshold := v_row.low_stock_threshold;
+    v_unlimited := v_row.is_unlimited;
+  else
+    v_before := v_row.quantity_on_hand;
+    v_threshold := coalesce(p_low_stock_threshold, v_row.low_stock_threshold);
+    v_unlimited := coalesce(p_is_unlimited, v_row.is_unlimited);
+
+    if p_quantity < v_row.reserved_quantity then
+      return jsonb_build_object('status','FAILED','reason','STOCK_BELOW_RESERVED',
+        'reasonText','On hand cannot drop below the ' || v_row.reserved_quantity || ' unit(s) already reserved for open orders');
+    end if;
+
+    update public.inventory
+      set quantity_on_hand = p_quantity,
+          low_stock_threshold = v_threshold,
+          is_unlimited = v_unlimited,
+          updated_by = p_actor
+      where product_id = p_product_id;
+  end if;
+
+  insert into public.stock_movements (product_id, movement_type, delta, quantity_before, quantity_after, actor_id, note)
+  values (p_product_id, case when p_quantity >= v_before then 'restock' else 'adjustment' end,
+          p_quantity - v_before, v_before, p_quantity, p_actor,
+          coalesce(p_note, 'Stock set to ' || p_quantity));
+
+  perform public.kmd_audit(p_actor, 'STOCK_ADJUSTED', null, null, 'inventory', p_product_id::text,
+    jsonb_build_object('quantityOnHand', v_before),
+    jsonb_build_object('quantityOnHand', p_quantity, 'lowStockThreshold', v_threshold, 'isUnlimited', v_unlimited),
+    coalesce(p_note, 'Stock adjusted'), false);
+
+  return jsonb_build_object('status','UPDATED','quantityOnHand', p_quantity,
+    'lowStockThreshold', v_threshold, 'isUnlimited', v_unlimited, 'reasonText','Stock updated.');
+end $$;
+
+grant execute on function public.kmd_admin_set_stock(uuid, uuid, int, text, int, boolean) to service_role;
+
+-- The readiness report must point at the page that actually exists.
+create or replace function public.kmd_readiness_report()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select jsonb_build_array(
+    jsonb_build_object('key','super_admin','label','A super administrator account exists',
+      'status', case when exists (select 1 from public.user_roles where role in ('admin','super_admin')) then 'ok' else 'critical' end,
+      'detail', (select count(*)::text || ' administrator account(s)' from public.user_roles where role in ('admin','super_admin')),
+      'actionPath','/admin/members','actionLabel','Members'),
+    jsonb_build_object('key','delivery_fees','label','Every delivery area has an owner-supplied fee',
+      'status', case when exists (select 1 from public.delivery_zones where is_active and not is_configured) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' area(s) still show a shipping quote pending' from public.delivery_zones where is_active and not is_configured),
+      'actionPath','/admin/delivery-zones','actionLabel','Delivery & Shipping'),
+    jsonb_build_object('key','payment_accounts','label','Every payment account is owner-verified',
+      'status', case when exists (select 1 from public.payment_accounts where is_active and not is_verified) then 'todo' else 'ok' end,
+      'detail', (select count(*)::text || ' account(s) hidden from checkout pending verification' from public.payment_accounts where is_active and not is_verified),
+      'actionPath','/admin/payment-accounts','actionLabel','Payment Accounts'),
+    jsonb_build_object('key','package_prices','label','Membership packages have a price',
+      'status', case when exists (select 1 from public.products p join public.membership_packages mp on mp.product_id = p.id where mp.is_active and p.selling_price <= 0) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' active package(s) priced at zero and cannot be sold' from public.products p join public.membership_packages mp on mp.product_id = p.id where mp.is_active and p.selling_price <= 0),
+      'actionPath','/admin/packages','actionLabel','Membership Packages'),
+    jsonb_build_object('key','product_images','label','Every sellable product has an image',
+      'status', case when exists (select 1 from public.products where is_active and product_type in ('retail','reorder','digital') and coalesce(image_url,'') = '') then 'todo' else 'ok' end,
+      'detail', (select count(*)::text || ' product(s) without an image' from public.products where is_active and product_type in ('retail','reorder','digital') and coalesce(image_url,'') = ''),
+      'actionPath','/admin/products','actionLabel','Catalogue'),
+    jsonb_build_object('key','stock','label','Stock is recorded for every shipped product',
+      'status', case when exists (select 1 from public.products p left join public.inventory i on i.product_id = p.id where p.is_active and p.track_inventory and not p.is_digital and (i.product_id is null or (not i.is_unlimited and i.quantity_on_hand = 0))) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' shipped product(s) with no stock on hand — nothing can be bought until this is set' from public.products p left join public.inventory i on i.product_id = p.id where p.is_active and p.track_inventory and not p.is_digital and (i.product_id is null or (not i.is_unlimited and i.quantity_on_hand = 0))),
+      'actionPath','/admin/inventory','actionLabel','Inventory'),
+    jsonb_build_object('key','reward_values','label','Reward values are configured where rewards are due',
+      'status', case when exists (select 1 from public.products p join public.reward_configurations r on r.product_id = p.id where p.is_active and p.product_type in ('membership','bundle','reorder') and r.level1_points = 0 and r.level2_points = 0 and r.level3_points = 0 and r.level4_points = 0 and r.level5_points = 0) then 'critical' else 'ok' end,
+      'detail', (select count(*)::text || ' reward-bearing product(s) still at zero' from public.products p join public.reward_configurations r on r.product_id = p.id where p.is_active and p.product_type in ('membership','bundle','reorder') and r.level1_points = 0 and r.level2_points = 0 and r.level3_points = 0 and r.level4_points = 0 and r.level5_points = 0),
+      'actionPath','/admin/reward-configuration','actionLabel','Reward Configuration'),
+    jsonb_build_object('key','content','label','At least one article is published',
+      'status', case when exists (select 1 from public.content_posts where is_published) then 'ok' else 'todo' end,
+      'detail', (select count(*)::text || ' published article(s) across announcements, news, blog and guides' from public.content_posts where is_published),
+      'actionPath','/admin/content','actionLabel','Announcements & Blog'),
+    jsonb_build_object('key','video_testimonials','label','Video testimonies published (no video assets were supplied)',
+      'status','todo','detail','The design document promises video testimonies but supplies no video files, so none are shown rather than promising something that does not exist.',
+      'actionPath','/admin/content','actionLabel','Announcements & Blog')
+  );
+$$;

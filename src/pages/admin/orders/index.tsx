@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { PageHeader } from "@/components/kmd/page-header";
+import { ExportButton } from "@/components/kmd/export-button";
 import { StatCard } from "@/components/kmd/stat-card";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
@@ -135,6 +136,7 @@ export default function AdminOrders() {
       <PageHeader
         title="Orders"
         description="Every purchase record in the system with its payment and reward state."
+        actions={<ExportButton dataset="orders" filters={{ status: status === "all" ? null : status }} />}
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

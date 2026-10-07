@@ -21,8 +21,16 @@ export default {
 		extend: {
 			fontFamily: {
 				sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+				display: ['Sora', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
 			},
 			colors: {
+				/* Brand anchors — usable directly where a semantic token does not fit */
+				ink: 'hsl(var(--kmd-black))',
+				brand: {
+					DEFAULT: 'hsl(var(--kmd-green))',
+					leaf: 'hsl(var(--kmd-leaf))',
+					gold: 'hsl(var(--kmd-gold))',
+				},
 				border: 'hsl(var(--border))',
 				input: 'hsl(var(--input))',
 				ring: 'hsl(var(--ring))',
@@ -90,13 +98,17 @@ export default {
 			},
 			backgroundImage: {
 				'kmd-primary': 'var(--gradient-primary)',
+				'kmd-hero': 'var(--gradient-hero)',
 				'kmd-gold': 'var(--gradient-gold)',
+				'kmd-leaf': 'var(--gradient-leaf)',
 				'kmd-platinum': 'var(--gradient-platinum)',
 				'kmd-surface': 'var(--gradient-surface)',
 			},
 			boxShadow: {
 				elegant: 'var(--shadow-elegant)',
 				glow: 'var(--shadow-glow)',
+				gold: 'var(--shadow-gold)',
+				elevated: 'var(--shadow-elevated)',
 			},
 			keyframes: {
 				'accordion-down': {

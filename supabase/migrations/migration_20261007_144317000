@@ -1,0 +1,112 @@
+-- KMD EMPIRE migration 9b · site settings, delivery zones, catalogue, reward matrix
+
+insert into public.system_settings (key, value, description) values
+  ('site.contact.phones', '["+63 995 861 2854","+63 975 398 9689"]'::jsonb, 'Published contact numbers.'),
+  ('site.contact.emails', '["dan08.skywalker@gmail.com","taksman11@gmail.com"]'::jsonb, 'Published contact email addresses.'),
+  ('site.contact.address', '"Philippines"'::jsonb, 'Published business location.'),
+  ('site.website', '"www.kmdempire.com"'::jsonb, 'Published website address.'),
+  ('site.social.facebook', '"https://www.facebook.com/dokudamiphilippines/"'::jsonb, 'Facebook page.'),
+  ('site.social.youtube', '"https://www.youtube.com/@ecoandgreenchoyce"'::jsonb, 'YouTube channel.'),
+  ('site.social.tiktok', '"https://www.tiktok.com/@danderek08"'::jsonb, 'TikTok profile.'),
+  ('site.social.instagram', '"https://www.instagram.com/dan_derek08"'::jsonb, 'Instagram profile.'),
+  ('site.tagline', '"Serving with purpose, integrity, and excellence."'::jsonb, 'Brand tagline.'),
+  ('site.parent', '"KMD Empire Team is powered by GreenChoyce."'::jsonb, 'Parent company statement.'),
+  ('site.announcement', '""'::jsonb, 'Announcement strip shown across the public site. Empty hides it.'),
+  ('site.mission', '"To develop and provide innovative, sustainable, and high-quality products that solve everyday challenges while creating a positive impact on people and the environment."'::jsonb, 'Mission statement.'),
+  ('site.vision', '"To build a future where innovation and sustainability go hand in hand, delivering products that improve lives while protecting our planet. Because there is no Planet B."'::jsonb, 'Vision statement.'),
+  ('stock_reservation_hours', '72'::jsonb, 'How long a checkout holds stock before the reservation expires.'),
+  ('bundle_reward_policy', '"bundle_sku"'::jsonb, 'Reward a bundle purchase from the bundle SKU or from its component SKUs.'),
+  ('support_email', '"dan08.skywalker@gmail.com"'::jsonb, 'Address shown on support and contact pages.'),
+  ('policy_version', '"2026-10-07"'::jsonb, 'Version of the published privacy, terms and refund policies.')
+on conflict (key) do nothing;
+
+insert into public.delivery_zones (name, coverage, shipping_fee, is_configured, is_active, sort_order) values
+  ('Luzon', 'Metro Manila and the whole of Luzon', 0, false, true, 1),
+  ('Visayas', 'Visayas islands', 0, false, true, 2),
+  ('Mindanao', 'Mindanao islands', 0, false, true, 3)
+on conflict (name) do nothing;
+
+update public.products
+  set product_code = 'DOK-REORDER',
+      name = 'Dokudami Capsules',
+      category = 'Wellness',
+      product_type = 'reorder',
+      slug = 'dokudami-capsules',
+      short_description = 'Houttuynia cordata food supplement capsules.',
+      brand = 'EGC Dokudami',
+      image_url = '/products/dokudami.png',
+      gallery = '["/products/dokudami.png","/products/dokudami-ingredients.png"]'::jsonb,
+      regular_price = 3000.00,
+      promo_price = 1850.00,
+      sort_order = 1,
+      description = 'Everyday wellness support in capsule form, made with Houttuynia cordata (dokudami) and its naturally occurring flavonoids, essential oil, alkaloids, phenolic acid and fatty acids.',
+      disclaimer = 'This product is a food supplement. It is not intended to diagnose, treat, cure or prevent any disease. Individual results may vary.'
+  where sku = 'KMD-DOKUDAMI-001';
+
+insert into public.products (
+  product_code, name, sku, category, product_type, is_active, is_digital,
+  slug, short_description, description, brand, image_url, gallery,
+  regular_price, promo_price, sort_order, disclaimer, track_inventory
+) values
+  ('KMD-POWERPILL-75L', 'PowerPill Plus (75L / Pill)', 'KMD-POWERPILL-75L', 'Fuel Additive', 'retail', true, false,
+   'powerpill-plus-75l', 'Advanced fuel conditioning technology for 75 litres of fuel per pill.',
+   'A fuel conditioning pill for gasoline and diesel engines. Helps support cleaner and more efficient combustion, reduces carbon build-up and supports smoother engine performance.',
+   'PowerPill Plus', '/products/powerpill-75l.jpeg', '["/products/powerpill-75l.jpeg","/products/powerpill.jpeg"]'::jsonb,
+   1350.00, 950.00, 2,
+   'Performance results may vary depending on engine condition, fuel quality, vehicle type, maintenance practices and operating conditions.', true),
+  ('KMD-POWERPILL-15L', 'PowerPill Plus MICRO (15L / Pill)', 'KMD-POWERPILL-15L', 'Fuel Additive', 'retail', true, false,
+   'powerpill-plus-15l', 'Compact fuel conditioning pill for motorcycles and small engines.',
+   'A smaller formulation of the PowerPill Plus range, designed for motorcycles, tricycles and other small engines.',
+   'PowerPill Plus', '/products/powerpill-15l.jpeg', '["/products/powerpill-15l.jpeg","/products/powerpill.jpeg"]'::jsonb,
+   300.00, 250.00, 3,
+   'Performance results may vary depending on engine condition, fuel quality, vehicle type, maintenance practices and operating conditions.', true),
+  ('KMD-LED-BULB', 'Intelligent Emergency LED Bulb', 'KMD-LED-BULB', 'Home & Lighting', 'retail', true, false,
+   'intelligent-emergency-led-bulb', 'Rechargeable LED bulb that stays lit during a power outage.',
+   'Stays illuminated even during power outages. Automatic emergency lighting with a rechargeable battery, up to 7 hours of backup power and energy-saving LED technology. 5-watt output equivalent to a 60-watt bulb, with a 5-year warranty.',
+   'Diode International', '/products/led-bulb.png', '["/products/led-bulb.png"]'::jsonb,
+   1500.00, 1200.00, 4,
+   'Backup duration depends on battery condition and usage.', true),
+  ('KMD-CLOSET', 'KMD Closet Apparel', 'KMD-CLOSET', 'Apparel', 'retail', true, false,
+   'kmd-closet-apparel', 'Elegant clothing designed for all-day comfort and timeless everyday style.',
+   'Lightweight, breathable apparel made for everyday wear at a price everyone can afford. Soft, comfortable fabric with an elegant silhouette that suits any occasion.',
+   'KMD Closet', '/products/kmd-closet.jpeg', '["/products/kmd-closet.jpeg"]'::jsonb,
+   499.00, 249.00, 5,
+   'Colour and cut may vary slightly between production batches.', true),
+  ('KMD-DIGITAL-LP', 'Website & Landing Page Service', 'KMD-DIGITAL-LP', 'Digital Services', 'digital', true, true,
+   'website-landing-page-service', 'Professional, customised website or landing page for your business.',
+   'An affordable, professional and fully customised digital service package covering website development, landing pages, business and e-commerce sites, mobile app development and digital solutions for your business. Delivered to your requirements after a scoping consultation.',
+   'KMD Digital Products', '/products/digital-services.png', '["/products/digital-services.png"]'::jsonb,
+   25000.00, 9999.00, 6,
+   'Scope, timeline and deliverables are confirmed with you before work begins.', false)
+on conflict (product_code) do nothing;
+
+insert into public.inventory (product_id, quantity_on_hand, low_stock_threshold, is_unlimited)
+select p.id, 0, 5, p.is_digital from public.products p
+on conflict (product_id) do nothing;
+
+insert into public.reward_configurations
+  (product_id, sku, level1_points, level2_points, level3_points, level4_points, level5_points,
+   loyalty_credit, loyalty_beneficiary_level)
+select p.id, p.sku, v.l1, v.l2, v.l3, v.l4, v.l5, v.loyalty, 1
+from (values
+  ('KMD-DOKUDAMI-001',  10::numeric,   5::numeric,  5::numeric,   5::numeric,  5::numeric,  0::numeric),
+  ('KMD-TRIAL-001',    150::numeric,  20::numeric, 10::numeric,   5::numeric,  5::numeric,  0::numeric),
+  ('KMD-CLASSIC-001',  300::numeric,  40::numeric, 20::numeric,  10::numeric, 10::numeric,  2::numeric),
+  ('KMD-GOLD-001',     600::numeric, 100::numeric, 40::numeric,  20::numeric, 20::numeric,  4::numeric),
+  ('KMD-PLATINUM-001', 5000::numeric, 300::numeric, 150::numeric, 100::numeric, 50::numeric, 30::numeric)
+) as v(sku, l1, l2, l3, l4, l5, loyalty)
+join public.products p on p.sku = v.sku
+on conflict (product_id) do update set
+  level1_points = excluded.level1_points,
+  level2_points = excluded.level2_points,
+  level3_points = excluded.level3_points,
+  level4_points = excluded.level4_points,
+  level5_points = excluded.level5_points,
+  loyalty_credit = excluded.loyalty_credit,
+  loyalty_beneficiary_level = 1,
+  updated_at = now();
+
+insert into public.reward_configurations (product_id, sku)
+select p.id, p.sku from public.products p
+where p.product_type in ('retail','digital')
+on conflict (product_id) do nothing;

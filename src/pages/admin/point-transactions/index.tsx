@@ -5,6 +5,7 @@ import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { invokeFunction } from "@/lib/kmd/invoke";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/kmd/page-header";
+import { ExportButton } from "@/components/kmd/export-button";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
@@ -177,6 +178,7 @@ export default function AdminPointTransactions() {
       <PageHeader
         title="Point Transactions"
         description="The administrator view of the entire Point Ledger, including redemptions, conversions, adjustments and reversals."
+        actions={<ExportButton dataset="point_ledger" filters={{ search: search || null }} />}
       />
 
       <div className="flex flex-wrap items-center gap-2">

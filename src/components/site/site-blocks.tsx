@@ -1,0 +1,102 @@
+import { Link } from "react-router-dom";
+import {
+  CheckCircle2,
+  Coins,
+  ShieldCheck,
+  Truck,
+} from "lucide-react";
+import { COMPANY, TRUST_SIGNALS } from "@/lib/site/content";
+import { useSiteText } from "@/contexts/store-context";
+
+const ICONS = [CheckCircle2, Truck, Coins, ShieldCheck];
+
+/** Admin-published announcement strip. An empty setting hides it entirely. */
+export function AnnouncementBar() {
+  const announcement = useSiteText("site.announcement", "");
+
+  if (!announcement) return null;
+
+  return (
+    <div className="bg-kmd-primary">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-center gap-2 px-4 py-2 text-center sm:px-6">
+        <p className="text-[11px] font-semibold tracking-wide text-primary-foreground sm:text-xs">
+          {announcement}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** Trust strip reused under the hero and on the cart and checkout pages. */
+export function TrustStrip({ className = "" }: { className?: string }) {
+  return (
+    <ul className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-4 ${className}`}>
+      {TRUST_SIGNALS.map((signal, index) => {
+        const Icon = ICONS[index] ?? CheckCircle2;
+        return (
+          <li key={signal.title} className="kmd-panel flex items-start gap-3 p-4">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
+              <Icon className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-xs font-semibold">{signal.title}</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                {signal.detail}
+              </p>
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** Brand story block used on the homepage and the About page. */
+export function BrandTile() {
+  return (
+    <div className="kmd-brand-tile">
+      <div className="kmd-gold-rule" />
+      <p className="kmd-eyebrow mt-4 text-gold">{COMPANY.legalParent}</p>
+      <h3 className="mt-2 text-lg font-bold">{COMPANY.positioning}</h3>
+      <p className="mt-2 text-xs leading-relaxed text-white/80">{COMPANY.parentBlurb}</p>
+      <p className="mt-4 text-[11px] text-white/70">
+        Learn more at{" "}
+        <a
+          href="https://www.greenchoyce.com"
+          target="_blank"
+          rel="noreferrer noopener"
+          className="font-semibold text-gold underline underline-offset-2"
+        >
+          greenchoyce.com
+        </a>
+      </p>
+    </div>
+  );
+}
+
+/** Inline CTA used at the end of content pages. */
+export function ShopCta() {
+  return (
+    <div className="kmd-hero rounded-2xl px-6 py-10 text-center sm:px-10">
+      <h2 className="text-xl font-bold text-white sm:text-2xl">Ready to order?</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm text-white/80">
+        Browse the catalogue, add what you need to your bag and check out as a guest — or join
+        the member plan and earn on every verified purchase in your team.
+      </p>
+      <div className="mt-6 flex flex-wrap justify-center gap-3">
+        <Link
+          to="/shop"
+          className="inline-flex h-11 items-center justify-center rounded-md bg-gold px-6 text-sm font-semibold text-gold-foreground shadow-[var(--shadow-gold)]"
+        >
+          Shop all products
+        </Link>
+        <Link
+          to="/register"
+          className="inline-flex h-11 items-center justify-center rounded-md border border-white/35 bg-white/12 px-6 text-sm font-semibold text-white hover:bg-white/22"
+        >
+          Become a member
+        </Link>
+      </div>
+    </div>
+  );
+}

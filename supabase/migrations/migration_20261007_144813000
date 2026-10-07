@@ -1,0 +1,290 @@
+-- KMD EMPIRE migration 12 · admin catalogue, stock, zones, payment accounts, content, tickets, exports, storage
+
+-- ============================================================
+-- 1. product administration
+-- ============================================================
+create or replace function public.kmd_admin_upsert_product(p_actor uuid, p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid := public.kmd_try_uuid(p_payload->>'id');
+  v_before public.products%rowtype;
+  v_row public.products%rowtype;
+  v_code text := nullif(trim(coalesce(p_payload->>'productCode','')), '');
+  v_name text := nullif(trim(coalesce(p_payload->>'name','')), '');
+  v_sku text := nullif(trim(coalesce(p_payload->>'sku','')), '');
+  v_type text := coalesce(nullif(trim(coalesce(p_payload->>'productType','')), ''), 'retail');
+  v_regular numeric(14,2);
+  v_promo numeric(14,2);
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if v_name is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','A product name is required');
+  end if;
+  if v_type not in ('membership','bundle','reorder','retail','digital') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_PRODUCT_TYPE',
+      'reasonText','Product type must be membership, bundle, reorder, retail or digital');
+  end if;
+
+  v_regular := nullif(trim(coalesce(p_payload->>'regularPrice','')), '')::numeric;
+  v_promo := nullif(trim(coalesce(p_payload->>'promoPrice','')), '')::numeric;
+  if coalesce(v_regular, 0) < 0 or coalesce(v_promo, 0) < 0 then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Prices cannot be negative');
+  end if;
+  if v_promo is not null and v_regular is not null and v_promo > v_regular then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION',
+      'reasonText','The promotional price cannot be higher than the regular price');
+  end if;
+
+  if v_id is null then
+    if v_code is null or v_sku is null then
+      return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Product code and SKU are required');
+    end if;
+    if exists (select 1 from public.products where upper(product_code) = upper(v_code)) then
+      return jsonb_build_object('status','FAILED','reason','DUPLICATE_PRODUCT_CODE','reasonText','Product code ' || v_code || ' already exists');
+    end if;
+    if exists (select 1 from public.products where upper(sku) = upper(v_sku)) then
+      return jsonb_build_object('status','FAILED','reason','DUPLICATE_SKU','reasonText','SKU ' || v_sku || ' already exists');
+    end if;
+
+    insert into public.products (
+      product_code, name, sku, category, product_type, is_active, is_digital, slug,
+      short_description, description, brand, image_url, gallery,
+      regular_price, promo_price, sort_order, disclaimer, track_inventory
+    ) values (
+      v_code, v_name, v_sku,
+      coalesce(nullif(trim(coalesce(p_payload->>'category','')), ''), 'General'),
+      v_type, coalesce((p_payload->>'isActive')::boolean, true),
+      coalesce((p_payload->>'isDigital')::boolean, false),
+      nullif(trim(coalesce(p_payload->>'slug','')), ''),
+      nullif(trim(coalesce(p_payload->>'shortDescription','')), ''),
+      nullif(trim(coalesce(p_payload->>'description','')), ''),
+      nullif(trim(coalesce(p_payload->>'brand','')), ''),
+      nullif(trim(coalesce(p_payload->>'imageUrl','')), ''),
+      coalesce(p_payload->'gallery', '[]'::jsonb),
+      v_regular, v_promo,
+      coalesce((p_payload->>'sortOrder')::int, 0),
+      nullif(trim(coalesce(p_payload->>'disclaimer','')), ''),
+      coalesce((p_payload->>'trackInventory')::boolean, true)
+    ) returning * into v_row;
+  else
+    select * into v_before from public.products where id = v_id;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND','reasonText','Product not found');
+    end if;
+
+    update public.products set
+      name = v_name,
+      category = coalesce(nullif(trim(coalesce(p_payload->>'category','')), ''), category),
+      product_type = v_type,
+      is_active = coalesce((p_payload->>'isActive')::boolean, is_active),
+      is_digital = coalesce((p_payload->>'isDigital')::boolean, is_digital),
+      track_inventory = coalesce((p_payload->>'trackInventory')::boolean, track_inventory),
+      slug = coalesce(nullif(trim(coalesce(p_payload->>'slug','')), ''), slug),
+      short_description = nullif(trim(coalesce(p_payload->>'shortDescription','')), ''),
+      description = nullif(trim(coalesce(p_payload->>'description','')), ''),
+      brand = nullif(trim(coalesce(p_payload->>'brand','')), ''),
+      image_url = coalesce(nullif(trim(coalesce(p_payload->>'imageUrl','')), ''), image_url),
+      gallery = coalesce(p_payload->'gallery', gallery),
+      regular_price = v_regular,
+      promo_price = v_promo,
+      sort_order = coalesce((p_payload->>'sortOrder')::int, sort_order),
+      disclaimer = nullif(trim(coalesce(p_payload->>'disclaimer','')), '')
+    where id = v_id
+    returning * into v_row;
+  end if;
+
+  insert into public.inventory (product_id, is_unlimited)
+  values (v_row.id, v_row.is_digital) on conflict (product_id) do nothing;
+
+  insert into public.reward_configurations (product_id, sku, updated_by)
+  values (v_row.id, v_row.sku, p_actor) on conflict (product_id) do nothing;
+
+  perform public.kmd_audit(p_actor, case when v_id is null then 'PRODUCT_CREATED' else 'PRODUCT_UPDATED' end,
+    null, null, 'products', v_row.id::text,
+    case when v_id is null then null else to_jsonb(v_before) end, to_jsonb(v_row),
+    'Product ' || v_row.sku || ' saved', false);
+
+  return jsonb_build_object('status', case when v_id is null then 'CREATED' else 'UPDATED' end,
+    'productId', v_row.id, 'sku', v_row.sku, 'sellingPrice', v_row.selling_price,
+    'reasonText','Product saved.');
+end $$;
+
+create or replace function public.kmd_admin_set_stock(
+  p_actor uuid, p_product_id uuid, p_quantity int, p_note text default null
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_row public.inventory%rowtype;
+  v_before int;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if p_quantity is null or p_quantity < 0 then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Stock cannot be negative');
+  end if;
+
+  select * into v_row from public.inventory where product_id = p_product_id for update;
+  if not found then
+    insert into public.inventory (product_id, quantity_on_hand, updated_by)
+    values (p_product_id, p_quantity, p_actor) returning * into v_row;
+    v_before := 0;
+  else
+    v_before := v_row.quantity_on_hand;
+    if p_quantity < v_row.reserved_quantity then
+      return jsonb_build_object('status','FAILED','reason','STOCK_BELOW_RESERVED',
+        'reasonText','On hand cannot drop below the ' || v_row.reserved_quantity || ' unit(s) already reserved for open orders');
+    end if;
+    update public.inventory set quantity_on_hand = p_quantity, updated_by = p_actor where product_id = p_product_id;
+  end if;
+
+  insert into public.stock_movements (product_id, movement_type, delta, quantity_before, quantity_after, actor_id, note)
+  values (p_product_id, case when p_quantity >= v_before then 'restock' else 'adjustment' end,
+          p_quantity - v_before, v_before, p_quantity, p_actor,
+          coalesce(p_note, 'Stock set to ' || p_quantity));
+
+  perform public.kmd_audit(p_actor, 'STOCK_ADJUSTED', null, null, 'inventory', p_product_id::text,
+    jsonb_build_object('quantityOnHand', v_before), jsonb_build_object('quantityOnHand', p_quantity),
+    coalesce(p_note, 'Stock adjusted'), false);
+
+  return jsonb_build_object('status','UPDATED','quantityOnHand', p_quantity, 'reasonText','Stock updated.');
+end $$;
+
+create or replace function public.kmd_admin_upsert_delivery_zone(p_actor uuid, p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid := public.kmd_try_uuid(p_payload->>'id');
+  v_row public.delivery_zones%rowtype;
+  v_fee_text text := nullif(trim(coalesce(p_payload->>'shippingFee','')), '');
+  v_fee numeric(14,2);
+  v_configured boolean;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  v_fee := coalesce(v_fee_text::numeric, 0);
+  if v_fee < 0 then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','A delivery fee cannot be negative');
+  end if;
+
+  -- Saving a fee is what marks the area as priced and unblocks checkout.
+  v_configured := case
+    when p_payload ? 'isConfigured' then (p_payload->>'isConfigured')::boolean
+    when v_fee_text is not null then true
+    else false end;
+
+  if v_id is null then
+    insert into public.delivery_zones (name, coverage, shipping_fee, free_shipping_threshold,
+      estimated_days_min, estimated_days_max, is_configured, is_active, sort_order)
+    values (nullif(trim(coalesce(p_payload->>'name','')), ''),
+            nullif(trim(coalesce(p_payload->>'coverage','')), ''), v_fee,
+            nullif(trim(coalesce(p_payload->>'freeShippingThreshold','')), '')::numeric,
+            nullif(trim(coalesce(p_payload->>'estimatedDaysMin','')), '')::int,
+            nullif(trim(coalesce(p_payload->>'estimatedDaysMax','')), '')::int,
+            v_configured, coalesce((p_payload->>'isActive')::boolean, true),
+            coalesce((p_payload->>'sortOrder')::int, 0))
+    returning * into v_row;
+  else
+    update public.delivery_zones set
+      name = coalesce(nullif(trim(coalesce(p_payload->>'name','')), ''), name),
+      coverage = nullif(trim(coalesce(p_payload->>'coverage','')), ''),
+      shipping_fee = v_fee,
+      free_shipping_threshold = nullif(trim(coalesce(p_payload->>'freeShippingThreshold','')), '')::numeric,
+      estimated_days_min = nullif(trim(coalesce(p_payload->>'estimatedDaysMin','')), '')::int,
+      estimated_days_max = nullif(trim(coalesce(p_payload->>'estimatedDaysMax','')), '')::int,
+      is_configured = v_configured,
+      is_active = coalesce((p_payload->>'isActive')::boolean, is_active),
+      sort_order = coalesce((p_payload->>'sortOrder')::int, sort_order)
+    where id = v_id returning * into v_row;
+  end if;
+
+  perform public.kmd_audit(p_actor, 'DELIVERY_ZONE_SAVED', null, null, 'delivery_zones', v_row.id::text,
+    null, to_jsonb(v_row), 'Delivery area ' || v_row.name || ' saved', false);
+
+  return jsonb_build_object('status','UPDATED','zoneId', v_row.id, 'isConfigured', v_row.is_configured,
+    'reasonText', case when v_row.is_configured then 'Delivery area saved. Checkout can now quote this area.'
+                       else 'Saved, but checkout will still show a shipping quote pending for this area.' end);
+end $$;
+
+create or replace function public.kmd_admin_upsert_payment_account(p_actor uuid, p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid := public.kmd_try_uuid(p_payload->>'id');
+  v_row public.payment_accounts%rowtype;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+  if v_id is null then
+    insert into public.payment_accounts (method, label, bank_name, account_name, account_number,
+      qr_image_url, is_verified, flag_reason, is_active, sort_order)
+    values (coalesce(nullif(trim(coalesce(p_payload->>'method','')), ''), 'other'),
+            nullif(trim(coalesce(p_payload->>'label','')), ''),
+            nullif(trim(coalesce(p_payload->>'bankName','')), ''),
+            nullif(trim(coalesce(p_payload->>'accountName','')), ''),
+            nullif(trim(coalesce(p_payload->>'accountNumber','')), ''),
+            nullif(trim(coalesce(p_payload->>'qrImageUrl','')), ''),
+            coalesce((p_payload->>'isVerified')::boolean, false),
+            nullif(trim(coalesce(p_payload->>'flagReason','')), ''),
+            coalesce((p_payload->>'isActive')::boolean, true),
+            coalesce((p_payload->>'sortOrder')::int, 0))
+    returning * into v_row;
+  else
+    update public.payment_accounts set
+      method = coalesce(nullif(trim(coalesce(p_payload->>'method','')), ''), method),
+      label = coalesce(nullif(trim(coalesce(p_payload->>'label','')), ''), label),
+      bank_name = coalesce(nullif(trim(coalesce(p_payload->>'bankName','')), ''), bank_name),
+      account_name = coalesce(nullif(trim(coalesce(p_payload->>'accountName','')), ''), account_name),
+      account_number = coalesce(nullif(trim(coalesce(p_payload->>'accountNumber','')), ''), account_number),
+      qr_image_url = nullif(trim(coalesce(p_payload->>'qrImageUrl','')), ''),
+      is_verified = coalesce((p_payload->>'isVerified')::boolean, is_verified),
+      flag_reason = nullif(trim(coalesce(p_payload->>'flagReason','')), ''),
+      is_active = coalesce((p_payload->>'isActive')::boolean, is_active),
+      sort_order = coalesce((p_payload->>'sortOrder')::int, sort_order)
+    where id = v_id returning * into v_row;
+  end if;
+
+  perform public.kmd_audit(p_actor, 'PAYMENT_ACCOUNT_SAVED', null, null, 'payment_accounts', v_row.id::text,
+    null, to_jsonb(v_row), 'Payment account ' || coalesce(v_row.label, v_row.method) || ' saved', false);
+
+  return jsonb_build_object('status','UPDATED','accountId', v_row.id, 'isVerified', v_row.is_verified,
+    'reasonText', case when v_row.is_verified then 'Verified. This account now appears at checkout.'
+                       else 'Saved but not verified, so it does not appear at checkout.' end);
+end $$;
+
+create or replace function public.kmd_admin_review_payment_account(
+  p_actor uuid, p_account_id uuid, p_verified boolean, p_flag_reason text default null
+) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_row public.payment_accounts%rowtype;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+
+  update public.payment_accounts set
+    is_verified = coalesce(p_verified, false),
+    flag_reason = case when coalesce(p_verified,false) then null
+                       else coalesce(nullif(trim(coalesce(p_flag_reason,'')), ''), flag_reason) end
+  where id = p_account_id returning * into v_row;
+
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ACCOUNT_NOT_FOUND','reasonText','Payment account not found');
+  end if;
+
+  perform public.kmd_audit(p_actor, case when v_row.is_verified then 'PAYMENT_ACCOUNT_VERIFIED' else 'PAYMENT_ACCOUNT_FLAGGED' end,
+    null, null, 'payment_accounts', v_row.id::text, null,
+    jsonb_build_object('isVerified', v_row.is_verified, 'flagReason', v_row.flag_reason),
+    'Payment account review', false);
+
+  return jsonb_build_object('status','UPDATED','isVerified', v_row.is_verified,
+    'reasonText', case when v_row.is_verified then 'Verified. It now appears at checkout.'
+                       else 'Flagged. It stays hidden from checkout.' end);
+end $$;
+
+grant execute on function public.kmd_admin_upsert_product(uuid, jsonb) to service_role;
+grant execute on function public.kmd_admin_set_stock(uuid, uuid, int, text) to service_role;
+grant execute on function public.kmd_admin_upsert_delivery_zone(uuid, jsonb) to service_role;
+grant execute on function public.kmd_admin_upsert_payment_account(uuid, jsonb) to service_role;
+grant execute on function public.kmd_admin_review_payment_account(uuid, uuid, boolean, text) to service_role;

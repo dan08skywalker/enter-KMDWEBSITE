@@ -1,128 +1,156 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&display=swap");
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+  KMD EMPIRE brand identity.
+  BLACK · DEEP GREEN · GOLD · WHITE
+
+  Contrast rules baked into this token set:
+  - `primary` carries white text in both modes and always clears WCAG AA.
+  - `gold` is a decorative and fill colour: it is used for backgrounds, rules,
+    borders and icons, never for body copy on a light surface.
+  - `accent` is the gold that *is* legible as text: a deep bronze in light mode
+    and bright gold in dark mode. Use `text-accent`, not `text-gold`, for words.
+*/
 @layer base {
   :root {
-    /* KMD Empire — deep royal indigo with gold and platinum accents */
-    --background: 220 33% 98%;
-    --foreground: 228 40% 12%;
+    --kmd-black: 0 0% 7%;
+    --kmd-green: 162 69% 14%;
+    --kmd-leaf: 145 48% 40%;
+    --kmd-gold: 46 65% 52%;
+    --kmd-white: 0 0% 100%;
+
+    --background: 0 0% 100%;
+    --foreground: 0 0% 7%;
 
     --card: 0 0% 100%;
-    --card-foreground: 228 40% 12%;
+    --card-foreground: 0 0% 7%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 228 40% 12%;
+    --popover-foreground: 0 0% 7%;
 
-    --primary: 231 62% 30%;
-    --primary-foreground: 210 40% 99%;
+    --primary: 162 69% 14%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 222 30% 95%;
-    --secondary-foreground: 231 45% 24%;
+    --secondary: 150 24% 96%;
+    --secondary-foreground: 162 55% 12%;
 
-    --muted: 220 25% 95.5%;
-    --muted-foreground: 226 16% 46%;
+    --muted: 150 14% 95.5%;
+    --muted-foreground: 158 12% 38%;
 
-    --accent: 43 74% 49%;
-    --accent-foreground: 30 60% 12%;
+    --accent: 38 70% 33%;
+    --accent-foreground: 0 0% 100%;
 
-    --destructive: 0 72% 48%;
+    --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 58% 34%;
+    --success: 152 60% 28%;
     --success-foreground: 0 0% 100%;
 
-    --warning: 32 90% 46%;
-    --warning-foreground: 30 60% 12%;
+    --warning: 32 90% 40%;
+    --warning-foreground: 0 0% 100%;
 
-    --gold: 43 74% 49%;
-    --gold-foreground: 30 60% 12%;
-    --platinum: 220 14% 62%;
+    --gold: 46 65% 52%;
+    --gold-foreground: 0 0% 7%;
+    --platinum: 158 10% 46%;
     --platinum-foreground: 0 0% 100%;
 
-    --border: 220 20% 90%;
-    --input: 220 20% 90%;
-    --ring: 231 62% 30%;
+    --border: 150 14% 89%;
+    --input: 150 14% 89%;
+    --ring: 162 69% 14%;
 
     --radius: 0.75rem;
 
-    --sidebar-background: 232 47% 14%;
-    --sidebar-foreground: 222 30% 88%;
-    --sidebar-primary: 43 74% 49%;
-    --sidebar-primary-foreground: 30 60% 12%;
-    --sidebar-accent: 232 40% 21%;
+    /* Admin and member sidebars are always on the dark brand surface */
+    --sidebar-background: 162 55% 9%;
+    --sidebar-foreground: 150 14% 88%;
+    --sidebar-primary: 46 65% 55%;
+    --sidebar-primary-foreground: 0 0% 7%;
+    --sidebar-accent: 162 40% 16%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 232 35% 24%;
-    --sidebar-ring: 43 74% 49%;
+    --sidebar-border: 162 34% 19%;
+    --sidebar-ring: 46 65% 55%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(231 62% 26%) 0%, hsl(243 56% 42%) 100%);
-    --gradient-gold: linear-gradient(135deg, hsl(43 74% 45%) 0%, hsl(38 88% 62%) 100%);
-    --gradient-platinum: linear-gradient(135deg, hsl(220 16% 58%) 0%, hsl(220 20% 88%) 100%);
-    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(220 33% 98%) 100%);
+    /* Gradients */
+    --gradient-primary: linear-gradient(150deg, hsl(162 72% 11%) 0%, hsl(158 62% 20%) 100%);
+    --gradient-hero: linear-gradient(155deg, hsl(0 0% 6%) 0%, hsl(162 66% 14%) 62%, hsl(152 58% 22%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(42 66% 44%) 0%, hsl(48 78% 62%) 100%);
+    --gradient-leaf: linear-gradient(140deg, hsl(150 52% 32%) 0%, hsl(88 52% 48%) 100%);
+    --gradient-platinum: linear-gradient(135deg, hsl(158 10% 42%) 0%, hsl(158 14% 74%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(150 24% 98%) 100%);
 
-    --shadow-elegant: 0 10px 30px -14px hsl(231 62% 30% / 0.3);
-    --shadow-glow: 0 0 0 1px hsl(43 74% 49% / 0.22), 0 10px 28px -12px hsl(43 74% 49% / 0.4);
+    /* Shadows */
+    --shadow-elegant: 0 12px 34px -16px hsl(162 69% 14% / 0.3);
+    --shadow-glow: 0 0 0 1px hsl(46 65% 52% / 0.28), 0 12px 30px -14px hsl(46 65% 52% / 0.42);
+    --shadow-gold: 0 18px 44px -20px hsl(46 65% 52% / 0.55);
+    --shadow-elevated: 0 20px 50px -24px hsl(0 0% 7% / 0.4);
+
     --transition-smooth: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .dark {
-    --background: 230 32% 8%;
-    --foreground: 220 30% 96%;
+    --background: 0 0% 7%;
+    --foreground: 0 0% 97%;
 
-    --card: 230 26% 12%;
-    --card-foreground: 220 30% 96%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 97%;
 
-    --popover: 230 26% 12%;
-    --popover-foreground: 220 30% 96%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 97%;
 
-    --primary: 43 74% 52%;
-    --primary-foreground: 30 60% 10%;
+    --primary: 160 72% 26%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 230 22% 19%;
-    --secondary-foreground: 220 30% 96%;
+    --secondary: 158 18% 16%;
+    --secondary-foreground: 0 0% 97%;
 
-    --muted: 230 22% 18%;
-    --muted-foreground: 222 16% 66%;
+    --muted: 158 14% 15%;
+    --muted-foreground: 150 10% 68%;
 
-    --accent: 43 74% 52%;
-    --accent-foreground: 30 60% 10%;
+    --accent: 46 72% 58%;
+    --accent-foreground: 0 0% 7%;
 
-    --destructive: 0 62% 44%;
+    --destructive: 0 62% 50%;
     --destructive-foreground: 0 0% 100%;
 
-    --success: 152 48% 42%;
-    --success-foreground: 0 0% 100%;
+    --success: 150 50% 46%;
+    --success-foreground: 0 0% 7%;
 
-    --warning: 32 82% 52%;
-    --warning-foreground: 30 60% 10%;
+    --warning: 36 88% 56%;
+    --warning-foreground: 0 0% 7%;
 
-    --gold: 43 74% 52%;
-    --gold-foreground: 30 60% 10%;
-    --platinum: 220 14% 70%;
-    --platinum-foreground: 230 26% 12%;
+    --gold: 46 72% 58%;
+    --gold-foreground: 0 0% 7%;
+    --platinum: 158 12% 68%;
+    --platinum-foreground: 0 0% 7%;
 
-    --border: 230 20% 21%;
-    --input: 230 20% 21%;
-    --ring: 43 74% 52%;
+    --border: 158 12% 19%;
+    --input: 158 12% 19%;
+    --ring: 46 72% 58%;
 
-    --sidebar-background: 230 30% 11%;
-    --sidebar-foreground: 222 24% 86%;
-    --sidebar-primary: 43 74% 52%;
-    --sidebar-primary-foreground: 30 60% 10%;
-    --sidebar-accent: 230 24% 18%;
+    --sidebar-background: 0 0% 6%;
+    --sidebar-foreground: 150 12% 86%;
+    --sidebar-primary: 46 72% 58%;
+    --sidebar-primary-foreground: 0 0% 7%;
+    --sidebar-accent: 158 20% 14%;
     --sidebar-accent-foreground: 0 0% 100%;
-    --sidebar-border: 230 22% 20%;
-    --sidebar-ring: 43 74% 52%;
+    --sidebar-border: 158 12% 16%;
+    --sidebar-ring: 46 72% 58%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(231 45% 22%) 0%, hsl(243 45% 34%) 100%);
-    --gradient-gold: linear-gradient(135deg, hsl(43 70% 40%) 0%, hsl(38 82% 56%) 100%);
-    --gradient-platinum: linear-gradient(135deg, hsl(220 14% 40%) 0%, hsl(220 18% 66%) 100%);
-    --gradient-surface: linear-gradient(180deg, hsl(230 26% 12%) 0%, hsl(230 32% 9%) 100%);
+    --gradient-primary: linear-gradient(150deg, hsl(160 68% 16%) 0%, hsl(152 56% 26%) 100%);
+    --gradient-hero: linear-gradient(155deg, hsl(0 0% 5%) 0%, hsl(162 60% 11%) 60%, hsl(152 52% 18%) 100%);
+    --gradient-gold: linear-gradient(135deg, hsl(42 62% 40%) 0%, hsl(48 80% 64%) 100%);
+    --gradient-leaf: linear-gradient(140deg, hsl(150 46% 26%) 0%, hsl(88 46% 42%) 100%);
+    --gradient-platinum: linear-gradient(135deg, hsl(158 10% 38%) 0%, hsl(158 14% 62%) 100%);
+    --gradient-surface: linear-gradient(180deg, hsl(0 0% 10%) 0%, hsl(0 0% 7%) 100%);
 
-    --shadow-elegant: 0 10px 30px -14px hsl(0 0% 0% / 0.6);
-    --shadow-glow: 0 0 0 1px hsl(43 74% 52% / 0.28), 0 10px 28px -12px hsl(43 74% 52% / 0.35);
+    --shadow-elegant: 0 12px 34px -16px hsl(0 0% 0% / 0.66);
+    --shadow-glow: 0 0 0 1px hsl(46 72% 58% / 0.3), 0 12px 30px -14px hsl(46 72% 58% / 0.4);
+    --shadow-gold: 0 18px 44px -20px hsl(46 72% 58% / 0.45);
+    --shadow-elevated: 0 20px 50px -24px hsl(0 0% 0% / 0.7);
   }
 }
 
@@ -141,18 +169,24 @@
   h2,
   h3,
   h4 {
+    font-family: "Sora", "Inter", ui-sans-serif, system-ui, sans-serif;
     @apply font-semibold tracking-tight;
   }
 }
 
 @layer components {
-  /* Elevated panel used across both dashboards */
+  /* Elevated panel used across both dashboards and the storefront */
   .kmd-panel {
     @apply rounded-xl border bg-card text-card-foreground shadow-sm;
   }
 
   .kmd-panel-quiet {
     @apply rounded-xl border border-border/70 bg-card/60;
+  }
+
+  /* A panel that sits on the dark brand surface and therefore inverts */
+  .kmd-dark-panel {
+    @apply rounded-xl border border-white/12 bg-white/[0.06] text-white backdrop-blur;
   }
 
   /* Small uppercase label used above figures */
@@ -164,14 +198,64 @@
     @apply text-2xl font-bold tabular-nums tracking-tight;
   }
 
-  /* Brand lockup */
+  /* Brand lockup — deep green tile with a gold ring */
   .kmd-brand-mark {
-    background-image: var(--gradient-gold);
-    @apply flex h-9 w-9 items-center justify-center rounded-lg text-sm font-extrabold text-[hsl(var(--gold-foreground))];
+    background-image: var(--gradient-primary);
+    @apply flex h-9 w-9 items-center justify-center rounded-lg text-sm font-extrabold text-primary-foreground ring-1 ring-gold/60;
   }
 
   .kmd-scroll {
     scrollbar-width: thin;
+  }
+
+  /* Hero and section surfaces */
+  .kmd-hero {
+    background-image: var(--gradient-hero);
+    @apply text-white;
+  }
+
+  .kmd-gold-rule {
+    background-image: var(--gradient-gold);
+    @apply h-1 w-16 rounded-full;
+  }
+
+  .kmd-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-[0.2em];
+  }
+
+  /* Long-form policy, blog and knowledge copy */
+  .kmd-prose {
+    @apply text-sm leading-relaxed text-muted-foreground;
+  }
+
+  .kmd-prose h2 {
+    @apply mt-8 mb-2 text-lg font-semibold text-foreground;
+  }
+
+  .kmd-prose h3 {
+    @apply mt-6 mb-1.5 text-sm font-semibold text-foreground;
+  }
+
+  .kmd-prose p {
+    @apply mb-3;
+  }
+
+  .kmd-prose ul {
+    @apply mb-3 list-disc space-y-1 pl-5;
+  }
+
+  .kmd-prose a {
+    @apply font-medium text-accent underline underline-offset-2;
+  }
+
+  /* A gold-outlined dark tile used for the brand story blocks */
+  .kmd-brand-tile {
+    background-image: var(--gradient-hero);
+    @apply relative overflow-hidden rounded-2xl p-6 text-white ring-1 ring-gold/25;
+  }
+
+  .kmd-price-strike {
+    @apply text-sm text-muted-foreground line-through decoration-destructive/60 decoration-2;
   }
 }
 
@@ -188,4 +272,8 @@ body,
 #root {
   width: 100%;
   height: 100%;
+}
+
+html {
+  scroll-behavior: smooth;
 }

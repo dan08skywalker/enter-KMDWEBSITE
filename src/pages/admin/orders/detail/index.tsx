@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Activity, BadgeCheck, Loader2, RefreshCw, Undo2, XCircle } from "lucide-react";
+import { Activity, BadgeCheck, Loader2, RefreshCw, Truck, Undo2, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeFunction } from "@/lib/kmd/invoke";
 import { PageHeader } from "@/components/kmd/page-header";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { OrderStatusTimeline } from "@/components/kmd/order-status-timeline";
@@ -13,13 +17,6 @@ import { EngineResultPanel } from "@/components/kmd/engine-result";
 import { MemberCell } from "@/components/kmd/member-cell";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -52,6 +49,11 @@ export default function AdminOrderDetail() {
   const [loyaltyRows, setLoyaltyRows] = useState<LoyaltyLedgerRow[]>([]);
   const [buyer, setBuyer] = useState<Profile | null>(null);
   const [engineResult, setEngineResult] = useState<EngineRunResult | null>(null);
+  const [fulfillmentOpen, setFulfillmentOpen] = useState(false);
+  const [fulfillmentStatus, setFulfillmentStatus] = useState("unfulfilled");
+  const [courier, setCourier] = useState("");
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [fulfillmentBusy, setFulfillmentBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -138,6 +140,33 @@ export default function AdminOrderDetail() {
     return {};
   };
 
+  const openFulfillment = (current: Record<string, unknown>) => {
+    setFulfillmentStatus(String(current.fulfillment_status ?? "unfulfilled"));
+    setCourier(String(current.courier ?? ""));
+    setTrackingNumber(String(current.tracking_number ?? ""));
+    setFulfillmentOpen(true);
+  };
+
+  const saveFulfillment = async () => {
+    setFulfillmentBusy(true);
+    const outcome = await invokeFunction<{ reasonText?: string }>("admin-actions", {
+      action: "set_fulfillment",
+      orderId,
+      status: fulfillmentStatus,
+      courier: courier.trim() || null,
+      trackingNumber: trackingNumber.trim() || null,
+    });
+    setFulfillmentBusy(false);
+
+    if (!outcome.ok) {
+      toast.error("Could not update fulfilment", { description: outcome.error });
+      return;
+    }
+    toast.success(outcome.data?.reasonText ?? "Fulfilment updated");
+    setFulfillmentOpen(false);
+    await load();
+  };
+
   if (loading) {
     return (
       <>
@@ -169,6 +198,12 @@ export default function AdminOrderDetail() {
 
   const status = orderStatus(order.status);
   const latestProof = proofs[0];
+  const row = order as unknown as Record<string, unknown>;
+  const fulfillment = String(row.fulfillment_status ?? "unfulfilled");
+  const orderCourier = (row.courier ?? null) as string | null;
+  const orderTracking = (row.tracking_number ?? null) as string | null;
+  const shippingQuoted = row.is_shipping_quoted !== false;
+  const shippingFee = Number(row.shipping_fee ?? 0);
 
   return (
     <>
@@ -186,9 +221,45 @@ export default function AdminOrderDetail() {
                 Diagnostics
               </Link>
             </Button>
+            <Button variant="brand" onClick={() => openFulfillment(order as unknown as Record<string, unknown>)}>
+              <Truck className="h-4 w-4" />
+              Fulfilment
+            </Button>
           </>
         }
       />
+
+      <div className="kmd-panel flex flex-wrap items-center justify-between gap-4 p-4">
+        <div className="flex flex-wrap items-center gap-4">
+          <div>
+            <p className="kmd-label">Fulfilment</p>
+            <p className="mt-1 flex items-center gap-2 text-sm font-semibold capitalize">
+              <Truck className="h-4 w-4 text-primary" />
+              {fulfillment.replace(/_/g, " ")}
+            </p>
+          </div>
+          <Separator orientation="vertical" className="h-8" />
+          <div>
+            <p className="kmd-label">Courier</p>
+            <p className="mt-1 text-sm font-semibold">{orderCourier ?? "Not assigned"}</p>
+          </div>
+          <Separator orientation="vertical" className="h-8" />
+          <div>
+            <p className="kmd-label">Tracking number</p>
+            <p className="mt-1 font-mono text-sm font-semibold">{orderTracking ?? "Not issued"}</p>
+          </div>
+          <Separator orientation="vertical" className="h-8" />
+          <div>
+            <p className="kmd-label">Delivery charge</p>
+            <p className="mt-1 text-sm font-semibold">
+              {shippingQuoted ? formatPeso(shippingFee) : "Shipping quote pending"}
+            </p>
+          </div>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => openFulfillment(row)}>
+          Update fulfilment
+        </Button>
+      </div>
 
       <div className="kmd-panel flex flex-wrap items-center justify-between gap-4 p-5">
         <div className="flex flex-wrap items-center gap-4">
@@ -500,6 +571,68 @@ export default function AdminOrderDetail() {
             </DialogDescription>
           </DialogHeader>
           {engineResult ? <EngineResultPanel result={engineResult} /> : null}
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fulfillmentOpen} onOpenChange={setFulfillmentOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Fulfilment</DialogTitle>
+            <DialogDescription>
+              Moving this order to shipped records the dispatch time and notifies the customer.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="fulfillment-status">Status</Label>
+              <Select value={fulfillmentStatus} onValueChange={setFulfillmentStatus}>
+                <SelectTrigger id="fulfillment-status" className="mt-1.5">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unfulfilled">Unfulfilled</SelectItem>
+                  <SelectItem value="preparing">Preparing</SelectItem>
+                  <SelectItem value="shipped">Shipped</SelectItem>
+                  <SelectItem value="delivered">Delivered</SelectItem>
+                  <SelectItem value="cancelled">Cancelled</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div>
+                <Label htmlFor="fulfillment-courier">Courier</Label>
+                <Input
+                  id="fulfillment-courier"
+                  value={courier}
+                  onChange={(event) => setCourier(event.target.value)}
+                  className="mt-1.5"
+                  placeholder="Courier name"
+                />
+              </div>
+              <div>
+                <Label htmlFor="fulfillment-tracking">Tracking number</Label>
+                <Input
+                  id="fulfillment-tracking"
+                  value={trackingNumber}
+                  onChange={(event) => setTrackingNumber(event.target.value)}
+                  className="mt-1.5"
+                  placeholder="Tracking reference"
+                />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setFulfillmentOpen(false)}>
+              Cancel
+            </Button>
+            <Button variant="brand" disabled={fulfillmentBusy} onClick={() => void saveFulfillment()}>
+              {fulfillmentBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              Save fulfilment
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </>

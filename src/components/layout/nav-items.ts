@@ -4,20 +4,26 @@ import {
   BadgePercent,
   BarChart3,
   BookOpenCheck,
+  Boxes,
   Coins,
   CreditCard,
   FileClock,
   Gift,
   GraduationCap,
   LayoutDashboard,
+  Layers,
+  LifeBuoy,
   Link2,
+  ListChecks,
   ListTree,
+  Newspaper,
   Package,
   Receipt,
   Settings,
   ShieldCheck,
   ShoppingBag,
   Sparkles,
+  Truck,
   Users,
   Wallet,
 } from "lucide-react";
@@ -67,6 +73,7 @@ export const MEMBER_NAV: NavSection[] = [
     title: "Account",
     items: [
       { label: "Orders", path: "/app/orders", icon: Package },
+      { label: "Support", path: "/app/support", icon: LifeBuoy },
       { label: "Settings", path: "/app/settings", icon: Settings },
     ],
   },
@@ -78,6 +85,7 @@ export const ADMIN_NAV: NavSection[] = [
     title: "Overview",
     items: [
       { label: "Dashboard", path: "/admin", icon: LayoutDashboard, end: true },
+      { label: "Launch Readiness", path: "/admin/readiness", icon: ListChecks },
       { label: "Reward Diagnostics", path: "/admin/diagnostics", icon: Activity },
       { label: "Verification Report", path: "/admin/verification-report", icon: BookOpenCheck },
     ],
@@ -95,7 +103,11 @@ export const ADMIN_NAV: NavSection[] = [
     items: [
       { label: "Orders", path: "/admin/orders", icon: Package },
       { label: "Payment Verification", path: "/admin/payment-verification", icon: BadgeCheck },
-      { label: "Products", path: "/admin/products", icon: ShoppingBag },
+      { label: "Catalogue", path: "/admin/products", icon: ShoppingBag },
+      { label: "Inventory", path: "/admin/inventory", icon: Boxes },
+      { label: "Delivery & Shipping", path: "/admin/delivery-zones", icon: Truck },
+      { label: "Payment Accounts", path: "/admin/payment-accounts", icon: CreditCard },
+      { label: "Bundles", path: "/admin/bundles", icon: Layers },
       { label: "Membership Packages", path: "/admin/packages", icon: GraduationCap },
     ],
   },
@@ -109,6 +121,13 @@ export const ADMIN_NAV: NavSection[] = [
     ],
   },
   {
+    title: "Support & content",
+    items: [
+      { label: "Support Tickets", path: "/admin/support", icon: LifeBuoy },
+      { label: "Announcements & Blog", path: "/admin/content", icon: Newspaper },
+    ],
+  },
+  {
     title: "System",
     items: [
       { label: "Audit Logs", path: "/admin/audit-logs", icon: FileClock },
@@ -119,3 +138,4 @@ export const ADMIN_NAV: NavSection[] = [
 
 export const ADMIN_BADGE = ShieldCheck;
 export const WALLET_ICON = Wallet;
+

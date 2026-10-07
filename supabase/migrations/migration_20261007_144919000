@@ -1,0 +1,99 @@
+create or replace function public.kmd_admin_export(p_actor uuid, p_dataset text, p_filters jsonb default '{}'::jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_result jsonb;
+  v_count int;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED','reasonText','Administrator role required');
+  end if;
+
+  if p_dataset = 'orders' then
+    select jsonb_build_object('columns', to_jsonb(array['Order number','Date','Customer','Type','Status','Fulfilment','Subtotal','Shipping','Total','Payment method','Courier','Tracking']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[o.order_number, to_char(o.created_at,'YYYY-MM-DD HH24:MI:SS'),
+        coalesce(o.guest_name,''), o.customer_type, o.status, o.fulfillment_status,
+        o.subtotal::text, o.shipping_fee::text, o.total_amount::text,
+        coalesce(o.payment_method,''), coalesce(o.courier,''), coalesce(o.tracking_number,'')])), '[]'::jsonb))
+    into v_result from public.orders o
+    where (p_filters->>'status' is null or o.status = p_filters->>'status')
+      and (p_filters->>'from' is null or o.created_at >= (p_filters->>'from')::timestamptz)
+      and (p_filters->>'to' is null or o.created_at <= (p_filters->>'to')::timestamptz)
+    order by o.created_at desc;
+  elsif p_dataset = 'point_ledger' then
+    select jsonb_build_object('columns', to_jsonb(array['Transaction','Date','Beneficiary','Buyer','SKU','Level','Points per unit','Total points','Direction','Status','Reward type','Order']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[l.transaction_id, to_char(l.created_at,'YYYY-MM-DD HH24:MI:SS'),
+        l.beneficiary_member_code, coalesce(l.buyer_member_code,''),
+        coalesce(l.sku,''), coalesce(l.unilevel_level::text,''), coalesce(l.points_per_unit::text,''),
+        l.total_points::text, l.direction, l.status, l.reward_type, coalesce(l.order_id::text,'')])), '[]'::jsonb))
+    into v_result from public.point_ledger l
+    where (p_filters->>'search' is null or l.beneficiary_member_code ilike '%' || (p_filters->>'search') || '%'
+        or coalesce(l.sku,'') ilike '%' || (p_filters->>'search') || '%')
+    order by l.created_at desc;
+  elsif p_dataset = 'loyalty_ledger' then
+    select jsonb_build_object('columns', to_jsonb(array['Transaction','Date','Beneficiary','SKU','Quantity','Credits','Direction','Status','Order']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[l.transaction_id, to_char(l.created_at,'YYYY-MM-DD HH24:MI:SS'),
+        l.beneficiary_member_code, coalesce(l.sku,''), coalesce(l.quantity::text,''), l.credit_amount::text,
+        l.direction, l.status, coalesce(l.order_id::text,'')])), '[]'::jsonb))
+    into v_result from public.loyalty_credit_ledger l order by l.created_at desc;
+  elsif p_dataset = 'wallet_ledger' then
+    select jsonb_build_object('columns', to_jsonb(array['Transaction','Date','Member','Amount','Direction','Status']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[l.transaction_id, to_char(l.created_at,'YYYY-MM-DD HH24:MI:SS'),
+        l.member_code, l.amount::text, l.direction, l.status])), '[]'::jsonb))
+    into v_result from public.shopping_wallet_ledger l order by l.created_at desc;
+  elsif p_dataset = 'members' then
+    select jsonb_build_object('columns', to_jsonb(array['Member code','Username','Name','Email','Mobile','Account type','Status','Sponsor','Points','Loyalty','Wallet','Registered','Test']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[p.member_code, p.username, p.full_name, p.email,
+        coalesce(p.mobile_number,''), p.account_type, p.account_status, coalesce(p.sponsor_code,''),
+        p.unilevel_points_balance::text, p.loyalty_credits_balance::text, p.shopping_wallet_balance::text,
+        to_char(p.registration_date,'YYYY-MM-DD HH24:MI:SS'), p.is_test::text])), '[]'::jsonb))
+    into v_result from public.profiles p
+    where (p_filters->>'accountType' is null or p.account_type = p_filters->>'accountType')
+      and (p_filters->>'status' is null or p.account_status = p_filters->>'status')
+      and (p_filters->>'search' is null or p.member_code ilike '%' || (p_filters->>'search') || '%'
+        or p.username ilike '%' || (p_filters->>'search') || '%'
+        or p.full_name ilike '%' || (p_filters->>'search') || '%'
+        or p.email ilike '%' || (p_filters->>'search') || '%')
+    order by p.registration_date desc;
+  elsif p_dataset = 'redemptions' then
+    select jsonb_build_object('columns', to_jsonb(array['Redemption','Date','Member','Type','Points','Peso value','Status','Reviewed']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[r.redemption_number, to_char(r.requested_at,'YYYY-MM-DD HH24:MI:SS'),
+        r.member_code, r.redemption_type, r.points::text, r.peso_value::text, r.status,
+        coalesce(to_char(r.reviewed_at,'YYYY-MM-DD HH24:MI:SS'),'')])), '[]'::jsonb))
+    into v_result from public.redemptions r
+    where (p_filters->>'status' is null or r.status = p_filters->>'status')
+    order by r.requested_at desc;
+  elsif p_dataset = 'inventory' then
+    select jsonb_build_object('columns', to_jsonb(array['SKU','Product','On hand','Reserved','Available','Low stock threshold','Unlimited','Movements']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[p.sku, p.name, coalesce(i.quantity_on_hand::text,'0'),
+        coalesce(i.reserved_quantity::text,'0'),
+        case when coalesce(i.is_unlimited,false) then 'unlimited'
+             else greatest(coalesce(i.quantity_on_hand,0) - coalesce(i.reserved_quantity,0),0)::text end,
+        coalesce(i.low_stock_threshold::text,''), coalesce(i.is_unlimited::text,'false'),
+        (select count(*)::text from public.stock_movements m where m.product_id = p.id)])), '[]'::jsonb))
+    into v_result from public.products p left join public.inventory i on i.product_id = p.id
+    order by p.sort_order, p.sku;
+  elsif p_dataset = 'payment_proofs' then
+    select jsonb_build_object('columns', to_jsonb(array['Order','Date','Member code','Guest email','Method','Reference','Amount','Status','Proof path']),
+      'rows', coalesce(jsonb_agg(to_jsonb(array[coalesce(pr.order_number,''), to_char(pp.submitted_at,'YYYY-MM-DD HH24:MI:SS'),
+        coalesce(pp.member_code,''), coalesce(pp.guest_email,''), pp.method, coalesce(pp.reference_number,''),
+        pp.amount::text, pp.status, coalesce(pp.proof_path,'')])), '[]'::jsonb))
+    into v_result from public.payment_proofs pp
+    join public.orders pr on pr.id = pp.order_id
+    where (p_filters->>'status' is null or pp.status = p_filters->>'status')
+    order by pp.submitted_at desc;
+  else
+    return jsonb_build_object('status','FAILED','reason','UNKNOWN_DATASET',
+      'reasonText','Unsupported export dataset: ' || coalesce(p_dataset,'(none)'));
+  end if;
+
+  v_count := jsonb_array_length(coalesce(v_result->'rows', '[]'::jsonb));
+
+  perform public.kmd_audit(p_actor, 'DATA_EXPORTED', null, null, p_dataset, null,
+    null, jsonb_build_object('dataset', p_dataset, 'rowCount', v_count, 'filters', p_filters),
+    'Exported ' || v_count || ' row(s) from ' || p_dataset, false);
+
+  return v_result || jsonb_build_object('status','OK','dataset', p_dataset,
+    'rowCount', v_count, 'generatedAt', to_char(now(),'YYYY-MM-DD HH24:MI:SS'));
+end $$;
+
+grant execute on function public.kmd_admin_export(uuid, text, jsonb) to service_role;

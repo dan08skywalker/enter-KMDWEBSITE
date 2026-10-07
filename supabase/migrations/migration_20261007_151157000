@@ -1,0 +1,1 @@
+drop function if exists public.kmd_admin_set_stock(uuid, uuid, int, text);

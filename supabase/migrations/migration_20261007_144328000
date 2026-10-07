@@ -1,0 +1,19 @@
+-- Payment accounts: imported in full. The three masked GCash names and the two
+-- records carrying an account number in the name field are flagged for the owner
+-- instead of being published as fact.
+insert into public.payment_accounts (method, label, bank_name, account_name, account_number, is_verified, flag_reason, is_active, sort_order)
+select * from (values
+  ('maya', 'Maya Wallet', 'Maya', 'Danilo Taoc', '09958612854', true, null, true, 1),
+  ('maya_bank', 'Maya Bank', 'Maya Bank', 'Danilo Taoc', '808070253444', true, null, true, 2),
+  ('bank_transfer', 'GoTyme Bank', 'GoTyme Bank', 'Danilo Taoc', '014993520908', true, null, true, 3),
+  ('bank_transfer', 'NetBank (A Rural Bank), Inc.', 'NetBank', 'Danilo Taoc', '17706713836341', true, null, true, 4),
+  ('bank_transfer', 'BDO Kabayan Savings', 'BDO Unibank, Incorporated', 'Danilo Andrada Taoc', '002920269271', true, null, true, 5),
+  ('bank_transfer', 'BDO Savings', 'Banco De Oro Unibank, Inc.', 'Danilo Taoc', '012340028147', true, null, true, 6),
+  ('bank_transfer', 'BDO Savings', 'Banco De Oro Unibank, Inc.', 'Danilo Taoc', '003200499448', true, null, true, 7),
+  ('gcash', 'GCash', 'GCash', 'DA***O T.', '09186544828', false, 'Account name is masked in the source document and conflicts with the full account name used for the bank accounts. Owner must confirm the exact registered name before this account is shown at checkout.', true, 8),
+  ('gcash', 'GCash', 'GCash', 'KE**A MY**H Q.', '09108916292', false, 'Account name is masked in the source document and conflicts with the full account name used for the bank accounts. Owner must confirm the exact registered name before this account is shown at checkout.', true, 9),
+  ('gcash', 'GCash', 'GCash', 'JE*****R T.', '09753989689', false, 'Account name is masked in the source document and conflicts with the full account name used for the bank accounts. Owner must confirm the exact registered name before this account is shown at checkout.', true, 10),
+  ('bank_transfer', 'MariBank', 'MariBank', null, '19884088568', false, 'The source document puts the account number in the account-name field. Owner must supply the registered account name.', true, 11),
+  ('bank_transfer', 'BPI', 'Bank of the Philippine Islands', null, '0989015776', false, 'The source document puts the account number in the account-name field. Owner must supply the registered account name.', true, 12)
+) as v(method, label, bank_name, account_name, account_number, is_verified, flag_reason, is_active, sort_order)
+where not exists (select 1 from public.payment_accounts);

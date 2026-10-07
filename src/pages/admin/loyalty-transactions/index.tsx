@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { PageHeader } from "@/components/kmd/page-header";
+import { ExportButton } from "@/components/kmd/export-button";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
@@ -112,6 +113,7 @@ export default function AdminLoyaltyTransactions() {
       <PageHeader
         title="Loyalty Transactions"
         description="The Loyalty Credit ledger, shown separately from Unilevel point activity."
+        actions={<ExportButton dataset="loyalty_ledger" />}
       />
 
       <div className="kmd-panel border-dashed p-4">
