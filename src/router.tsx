@@ -31,6 +31,7 @@ import TrackOrderPage from "./pages/site/track";
 import Login from "./pages/login";
 import Register from "./pages/register";
 import ForgotPassword from "./pages/forgot-password";
+import ResetPassword from "./pages/reset-password";
 import NotFound from "./pages/NotFound";
 
 /* ---------------- member ---------------- */
@@ -130,6 +131,7 @@ export const routers: Array<{
   { path: "/login", name: "login", element: <Login /> },
   { path: "/register", name: "register", element: <Register /> },
   { path: "/forgot-password", name: "forgot-password", element: <ForgotPassword /> },
+  { path: "/reset-password", name: "reset-password", element: <ResetPassword /> },
 
   {
     path: "/app",

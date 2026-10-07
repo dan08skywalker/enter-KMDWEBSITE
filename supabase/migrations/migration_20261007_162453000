@@ -1,0 +1,19 @@
+-- ROOT / SUPER ADMIN: the existing authentication user and profile are already
+-- connected (same uuid, super_admin role, confirmed email). The only thing missing
+-- is an active account status, so the ROOT can actually use the system.
+-- No auth user is created, no password is touched, no role is changed.
+update public.profiles
+   set account_status = 'active',
+       activation_date = coalesce(activation_date, now())
+ where member_code = 'KMD-0000-0000-0000-0001'
+   and account_status <> 'active';
+
+-- Confirm the connection in one place so the result is visible immediately.
+select p.member_code,
+       p.username,
+       p.full_name,
+       p.account_status,
+       p.id = (select u.id from auth.users u where u.email = p.email) as auth_user_linked,
+       (select string_agg(ur.role, ',' order by ur.role) from public.user_roles ur where ur.user_id = p.id) as roles
+from public.profiles p
+where p.member_code = 'KMD-0000-0000-0000-0001';

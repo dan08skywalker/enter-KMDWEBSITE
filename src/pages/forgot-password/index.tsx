@@ -16,8 +16,11 @@ export default function ForgotPassword() {
     event.preventDefault();
     setBusy(true);
 
+    // The recovery link must land on the screen that can actually set a new
+    // password; pointing it at /login left the member signed in with no way to
+    // choose a new password.
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: `${window.location.origin}/login`,
+      redirectTo: `${window.location.origin}/reset-password`,
     });
 
     setBusy(false);
@@ -53,8 +56,8 @@ export default function ForgotPassword() {
               </span>
               <h1 className="mt-4 text-lg font-bold tracking-tight">Check your email</h1>
               <p className="mt-2 text-sm text-muted-foreground">
-                If that email address is registered, a password reset link has been sent to it. The link
-                returns you to the sign-in page.
+                If that email address is registered, a password reset link has been sent to it. Open the
+                link to choose a new password.
               </p>
               <p className="mt-3 text-xs text-muted-foreground">
                 Nothing arrived? Confirm you used the email address on your member record, then try
