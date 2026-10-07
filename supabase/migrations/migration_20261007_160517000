@@ -1,0 +1,48 @@
+-- Opening stock: 10,000 units for every physical product and membership package.
+-- Routed through kmd_admin_set_stock so each change is attributed to the
+-- administrator, writes one stock_movements row and one audit_logs row.
+-- No deletes, no schema changes. The digital service is excluded: it is not stocked
+-- and is already flagged unlimited, so a numeric count would misreport it.
+do $$
+declare
+  v_actor uuid;
+  v_rec record;
+  v_result jsonb;
+  v_set int := 0;
+begin
+  select ur.user_id into v_actor
+  from public.user_roles ur
+  where ur.role in ('admin','super_admin')
+  order by case ur.role when 'super_admin' then 0 else 1 end
+  limit 1;
+
+  if v_actor is null then
+    raise exception 'KMD_NO_ADMINISTRATOR: no admin account exists to attribute the stock change to';
+  end if;
+
+  for v_rec in
+    select p.id, p.sku, p.is_digital
+    from public.products p
+    where p.is_active
+    order by p.sort_order, p.sku
+  loop
+    if v_rec.is_digital then
+      continue;
+    end if;
+
+    v_result := public.kmd_admin_set_stock(
+      p_actor => v_actor,
+      p_product_id => v_rec.id,
+      p_quantity => 10000,
+      p_note => 'Opening stock of 10,000 units set at owner instruction'
+    );
+
+    if v_result->>'status' <> 'UPDATED' then
+      raise exception 'KMD_STOCK_FAILED for %: %', v_rec.sku, v_result;
+    end if;
+
+    v_set := v_set + 1;
+  end loop;
+
+  raise notice 'Opening stock set for % products', v_set;
+end $$;
