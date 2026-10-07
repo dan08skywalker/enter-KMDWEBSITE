@@ -1,0 +1,12 @@
+-- Set a new password for the EXISTING root account only, as explicitly requested.
+-- The row identity, email, roles and member code are untouched; only the credential
+-- column changes. The guard pins the update to the credential that is live right
+-- now, so the statement cannot clobber a password that was changed in the meantime.
+-- The stored value is a bcrypt hash (cost 10) which the authentication provider
+-- verifies directly, so no plaintext is written into the repository.
+update auth.users
+   set encrypted_password = '$2b$10$TA4ZtwNtrqM9ASZDvKLoROKeIs/Tom00M3hGGVSzEZjDrlioIZxHu',
+       updated_at = now()
+ where id = 'ebd9ed15-8da5-4058-99c8-19c494540e0b'
+   and email = 'dan08.skywalker@gmail.com'
+   and md5(encrypted_password) = 'e7b7d88da5472c02359cf1718ae691af';
