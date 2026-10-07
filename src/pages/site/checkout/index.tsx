@@ -115,7 +115,7 @@ export default function CheckoutPage() {
       return;
     }
 
-    const result = (data ?? { status: "FAILED" }) as QuoteResult;
+    const result = (data ?? { status: "FAILED" }) as unknown as QuoteResult;
     if (result.status === "FAILED") {
       setQuoteError(result.reasonText ?? "Your cart could not be priced.");
       setQuote(null);
@@ -188,7 +188,7 @@ export default function CheckoutPage() {
       return;
     }
 
-    const placed = (data ?? {}) as PlacedOrder;
+    const placed = (data ?? {}) as unknown as PlacedOrder;
     if (placed.status !== "CREATED" || !placed.orderNumber) {
       setSubmitting(false);
       setFailure(placed.reasonText ?? "Your order could not be placed.");

@@ -44,7 +44,7 @@ export default function TrackOrderPage() {
       return;
     }
 
-    const result = (data ?? { found: false }) as TrackedOrder;
+    const result = (data ?? { found: false }) as unknown as TrackedOrder;
     setOrder(result.found ? result : null);
   };
 

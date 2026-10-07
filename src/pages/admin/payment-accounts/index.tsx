@@ -201,8 +201,8 @@ export default function AdminPaymentAccounts() {
                   </p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
                     {methodLabel(account.method)}
-                    {account.bankName && account.bankName !== account.label
-                      ? ` · ${account.bankName}`
+                    {account.bank_name && account.bank_name !== account.label
+                      ? ` · ${account.bank_name}`
                       : ""}
                   </p>
                 </div>

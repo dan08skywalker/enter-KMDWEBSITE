@@ -152,7 +152,7 @@ export function SiteHeader() {
                         )
                       }
                     >
-                      {item.label}
+                      {t(item.key)}
                     </NavLink>
                   ))}
                 </nav>

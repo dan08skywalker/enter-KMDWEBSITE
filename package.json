@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "NODE_ENV=development vite build --mode development",
     "build:prod": "vite build",
-    "check": "pnpm lint && pnpm exec tsc --noEmit",
+    "check": "pnpm lint && tsc -p tsconfig.app.json --noEmit && tsc -p tsconfig.node.json --noEmit",
     "lint": "eslint .",
     "preview": "vite preview",
     "pInstall": "pnpm install"

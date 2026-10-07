@@ -80,7 +80,7 @@ export default function OrderConfirmationPage() {
       return;
     }
 
-    const result = (data ?? { found: false }) as TrackedOrder;
+    const result = (data ?? { found: false }) as unknown as TrackedOrder;
     if (!result.found) {
       setUnauthorised(true);
     } else {

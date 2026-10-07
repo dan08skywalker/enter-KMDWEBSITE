@@ -68,7 +68,7 @@ export default function ProductDetailPage() {
         return;
       }
 
-      const payload = (data ?? {}) as StoreProduct & { found?: boolean };
+      const payload = (data ?? {}) as unknown as StoreProduct & { found?: boolean };
       if (payload.found === false || !payload.id) {
         setNotFound(true);
       } else {

@@ -97,7 +97,7 @@ export function SiteFooter() {
           <p className="kmd-eyebrow text-gold">{t("footer.quickLinks")}</p>
           <ul className="mt-4 space-y-2">
             {QUICK_LINKS.map((link) => (
-              <li key={link.to + link.label}>
+              <li key={link.to + link.key}>
                 <Link to={link.to} className="text-xs text-white/75 hover:text-white">
                   {t(link.key)}
                 </Link>
@@ -110,7 +110,7 @@ export function SiteFooter() {
           <p className="kmd-eyebrow text-gold">{t("footer.helpPolicies")}</p>
           <ul className="mt-4 space-y-2">
             {[...HELPFUL_LINKS, ...POLICY_LINKS].map((link) => (
-              <li key={link.to + link.label}>
+              <li key={link.to + link.key}>
                 <Link to={link.to} className="text-xs text-white/75 hover:text-white">
                   {t(link.key)}
                 </Link>

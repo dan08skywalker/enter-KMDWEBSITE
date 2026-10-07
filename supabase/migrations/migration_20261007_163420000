@@ -1,0 +1,35 @@
+-- The repo migration defined this, but it never reached the database, so the
+-- product page's single-product lookup was calling a function that does not exist.
+-- Created here exactly as the migration file specifies, and granted to the
+-- storefront roles so an anonymous visitor can open a product deep link.
+create or replace function public.kmd_storefront_product(p_slug text)
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(
+    (select jsonb_build_object(
+      'id', p.id, 'slug', p.slug, 'sku', p.sku, 'name', p.name, 'brand', p.brand,
+      'category', p.category, 'productType', p.product_type, 'eyebrow', p.short_description,
+      'description', p.description, 'disclaimer', p.disclaimer,
+      'imageUrl', p.image_url, 'gallery', p.gallery,
+      'regularPrice', p.regular_price, 'promoPrice', p.promo_price,
+      'effectivePrice', p.selling_price, 'isDigital', p.is_digital,
+      'availableQuantity', case
+        when p.is_digital or coalesce(i.is_unlimited,false) then null
+        when i.product_id is null then 0
+        else greatest(i.quantity_on_hand - i.reserved_quantity, 0) end,
+      'inStock', case
+        when p.is_digital or coalesce(i.is_unlimited,false) then true
+        else coalesce(i.quantity_on_hand - i.reserved_quantity, 0) > 0 end,
+      'lowStock', case
+        when p.is_digital or coalesce(i.is_unlimited,false) then false
+        else coalesce(i.quantity_on_hand - i.reserved_quantity, 0) > 0
+             and coalesce(i.quantity_on_hand - i.reserved_quantity, 0) <= coalesce(i.low_stock_threshold, 5) end,
+      'etaDays', case when p.is_digital then 'Delivered digitally after payment verification'
+                      else 'Dispatched after payment verification' end
+    ) from public.products p
+    left join public.inventory i on i.product_id = p.id
+    where p.is_active and p.slug = p_slug
+    limit 1),
+    jsonb_build_object('found', false));
+$$;
+
+grant execute on function public.kmd_storefront_product(text) to anon, authenticated;

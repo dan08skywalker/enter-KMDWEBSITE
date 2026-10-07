@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { LogOut, Menu, Shield, ShoppingBag, UserRound } from "lucide-react";
 import { cn } from "@/lib/utils";

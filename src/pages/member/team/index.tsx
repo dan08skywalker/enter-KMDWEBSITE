@@ -226,7 +226,7 @@ export default function MemberTeam() {
           <div key={group.level} className="kmd-panel">
             <div className="flex items-center justify-between border-b px-5 py-3">
               <div className="flex items-center gap-2">
-                <StatusBadge label={`Level ${group.level}`} tone="primary" />
+                <StatusBadge label={`Level ${group.level}`} tone="info" />
                 <span className="text-xs text-muted-foreground">
                   {group.members.length} {group.members.length === 1 ? "member" : "members"}
                 </span>

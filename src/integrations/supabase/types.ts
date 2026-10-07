@@ -5293,6 +5293,10 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Json
       }
+      kmd_storefront_product: {
+        Args: { p_slug: string }
+        Returns: Json
+      }
       kmd_ticket_create: {
         Args: { p_payload: Json }
         Returns: Json

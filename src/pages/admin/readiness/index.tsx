@@ -44,7 +44,7 @@ export default function AdminReadiness() {
       console.error("Could not load the readiness report:", error.message);
       setItems([]);
     } else {
-      setItems((data ?? []) as ReadinessItem[]);
+      setItems((data ?? []) as unknown as ReadinessItem[]);
     }
     setLoading(false);
   }, []);
