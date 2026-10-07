@@ -13,8 +13,8 @@ export default function CartPage() {
   return (
     <SiteShell>
       <PageHero
-        eyebrow="Your bag"
-        title="Review your bag"
+        eyebrow="Your cart"
+        title="Review your cart"
         intro="Adjust quantities here. Delivery is calculated on the next step for the area you are in."
       />
 
@@ -22,8 +22,8 @@ export default function CartPage() {
         {cart.lines.length === 0 ? (
           <EmptyState
             icon={ShoppingBag}
-            title="Your bag is empty"
-            description="Add something from the shop and it will appear here. Your bag is kept on this device, so it survives signing in or registering."
+            title="Your cart is empty"
+            description="Add something from the shop and it will appear here. Your cart is kept on this device, so it survives signing in or registering."
             action={
               <Button asChild variant="brand">
                 <Link to="/shop">Shop all products</Link>
@@ -122,14 +122,14 @@ export default function CartPage() {
                   className="mt-1 w-full text-muted-foreground"
                   onClick={cart.clear}
                 >
-                  Empty my bag
+                  Empty my cart
                 </Button>
               </div>
 
               <div className="kmd-panel flex gap-3 p-4">
                 <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <p className="text-[11px] leading-relaxed text-muted-foreground">
-                  Your bag is stored on this device, so it is still here if you sign in or register
+                  Your cart is stored on this device, so it is still here if you sign in or register
                   before checking out.
                 </p>
               </div>

@@ -96,7 +96,7 @@ export function SiteHeader() {
             </div>
             <ThemeToggle />
 
-            {/* The shopping bag and the member/sign-in action stay reachable at
+            {/* The shopping cart and the member/sign-in action stay reachable at
                 every width, including the smallest phones. */}
             <Button
               type="button"

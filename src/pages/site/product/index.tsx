@@ -91,7 +91,7 @@ export default function ProductDetailPage() {
     [products, product],
   );
 
-  const addToBag = () => {
+  const addToCart = () => {
     if (!product) return;
     cart.add(
       {
@@ -104,14 +104,14 @@ export default function ProductDetailPage() {
       quantity,
     );
     toast({
-      title: "Added to your bag",
+      title: "Added to your cart",
       description: `${quantity} × ${product.name}`,
     });
   };
 
   const buyNow = () => {
     if (!product) return;
-    addToBag();
+    addToCart();
     navigate("/checkout");
   };
 
@@ -271,11 +271,11 @@ export default function ProductDetailPage() {
                 variant="brand"
                 size="lg"
                 disabled={!product.inStock}
-                onClick={addToBag}
+                onClick={addToCart}
                 className="flex-1 sm:flex-none"
               >
                 <ShoppingBag className="h-4 w-4" />
-                {product.inStock ? "Add to bag" : "Out of stock"}
+                {product.inStock ? "Add to cart" : "Out of stock"}
               </Button>
               <Button
                 type="button"

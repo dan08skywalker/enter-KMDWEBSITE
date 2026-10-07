@@ -22,7 +22,7 @@ const router = createBrowserRouter(routers);
 const App = () => {
   return (
     <QueryClientProvider client={queryClient}>
-      {/* The storefront catalogue and the shopping bag are read by the public
+      {/* The storefront catalogue and the shopping cart are read by the public
           header, so both providers sit above the router. */}
       <StoreProvider>
         <CartProvider>

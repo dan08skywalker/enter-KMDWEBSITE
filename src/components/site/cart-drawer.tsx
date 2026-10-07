@@ -26,7 +26,7 @@ export function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
         <SheetHeader className="border-b px-5 py-4 text-left">
           <SheetTitle className="flex items-center gap-2 text-base">
             <ShoppingBag className="h-4 w-4" />
-            Your bag
+            Your cart
           </SheetTitle>
           <SheetDescription className="text-xs">
             {cart.count === 0
@@ -39,7 +39,7 @@ export function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
           <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <ShoppingBag className="h-10 w-10 text-muted-foreground" />
             <p className="text-sm text-muted-foreground">
-              Your bag is empty. Browse the shop to get started.
+              Your cart is empty. Browse the shop to get started.
             </p>
             <Button asChild variant="brand" onClick={() => onOpenChange(false)}>
               <Link to="/shop">Shop all products</Link>
@@ -145,7 +145,7 @@ export function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                 </Button>
                 <Button asChild variant="outline" size="sm">
                   <Link to="/cart" onClick={() => onOpenChange(false)}>
-                    View full bag
+                    View full cart
                   </Link>
                 </Button>
               </div>

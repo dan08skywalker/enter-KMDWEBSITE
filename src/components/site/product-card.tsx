@@ -17,7 +17,7 @@ export function ProductCard({ product }: ProductCardProps) {
   const href = product.slug ? `/shop/${product.slug}` : "/shop";
   const canBuy = product.inStock;
 
-  const addToBag = () => {
+  const addToCart = () => {
     cart.add(
       {
         sku: product.sku,
@@ -29,8 +29,8 @@ export function ProductCard({ product }: ProductCardProps) {
       1,
     );
     toast({
-      title: "Added to your bag",
-      description: `${product.name} is in your bag.`,
+      title: "Added to your cart",
+      description: `${product.name} is in your cart.`,
     });
   };
 
@@ -93,10 +93,10 @@ export function ProductCard({ product }: ProductCardProps) {
               size="sm"
               className="flex-1"
               disabled={!canBuy}
-              onClick={addToBag}
+              onClick={addToCart}
             >
               <ShoppingBag className="h-3.5 w-3.5" />
-              {canBuy ? "Add to bag" : "Unavailable"}
+              {canBuy ? "Add to cart" : "Unavailable"}
             </Button>
             <Button asChild variant="outline" size="sm">
               <Link to={href}>Details</Link>

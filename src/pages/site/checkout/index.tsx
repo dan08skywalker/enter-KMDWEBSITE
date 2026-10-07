@@ -110,14 +110,14 @@ export default function CheckoutPage() {
 
     if (error) {
       console.error("Quote failed:", error.message);
-      setQuoteError("We could not price your bag just now. Please refresh the page.");
+      setQuoteError("We could not price your cart just now. Please refresh the page.");
       setQuote(null);
       return;
     }
 
     const result = (data ?? { status: "FAILED" }) as QuoteResult;
     if (result.status === "FAILED") {
-      setQuoteError(result.reasonText ?? "Your bag could not be priced.");
+      setQuoteError(result.reasonText ?? "Your cart could not be priced.");
       setQuote(null);
       return;
     }
@@ -136,7 +136,7 @@ export default function CheckoutPage() {
   const noPaymentAccount = !storeLoading && paymentAccounts.length === 0;
 
   const validate = (): string | null => {
-    if (items.length === 0) return "Your bag is empty.";
+    if (items.length === 0) return "Your cart is empty.";
     if (!name.trim()) return "Enter the name we should deliver to.";
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()))
       return "Enter a valid email address so we can send your order confirmation.";
@@ -238,12 +238,12 @@ export default function CheckoutPage() {
   if (cart.lines.length === 0) {
     return (
       <SiteShell>
-        <PageHero eyebrow="Checkout" title="Your bag is empty" />
+        <PageHero eyebrow="Checkout" title="Your cart is empty" />
         <Section>
           <EmptyState
             icon={ShoppingBag}
             title="There is nothing to check out"
-            description="Add a product to your bag and come back to complete your order."
+            description="Add a product to your cart and come back to complete your order."
             action={
               <Button asChild variant="brand">
                 <Link to="/shop">Shop all products</Link>
@@ -408,7 +408,7 @@ export default function CheckoutPage() {
               <section className="kmd-panel flex gap-3 p-5">
                 <Truck className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <p className="text-xs leading-relaxed text-muted-foreground">
-                  Your bag contains only digital services, so there is no delivery fee. We will
+                  Your cart contains only digital services, so there is no delivery fee. We will
                   contact you at the email address above to agree the scope once payment is verified.
                 </p>
               </section>
@@ -529,7 +529,7 @@ export default function CheckoutPage() {
               {quoting ? (
                 <p className="mt-3 flex items-center gap-2 text-[11px] text-muted-foreground">
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  Pricing your bag…
+                  Pricing your cart…
                 </p>
               ) : null}
 

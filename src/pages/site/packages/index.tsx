@@ -62,8 +62,8 @@ export default function PackagesPage() {
       1,
     );
     toast({
-      title: "Added to your bag",
-      description: `${pkg.name} is in your bag.`,
+      title: "Added to your cart",
+      description: `${pkg.name} is in your cart.`,
     });
   };
 
@@ -158,7 +158,7 @@ export default function PackagesPage() {
                       onClick={() => addPackage(pkg)}
                     >
                       <ShoppingBag className="h-3.5 w-3.5" />
-                      {purchasable ? "Add to bag" : "Awaiting pricing"}
+                      {purchasable ? "Add to cart" : "Awaiting pricing"}
                     </Button>
                     <Button asChild variant="ghost" size="sm" className="mt-1 text-accent">
                       <Link to={detailHref}>See what is included</Link>

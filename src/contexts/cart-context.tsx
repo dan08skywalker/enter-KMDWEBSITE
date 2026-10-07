@@ -13,7 +13,7 @@ import type { CartLine } from "@/lib/site/types";
  * The shopping bag.
  *
  * It is kept in localStorage rather than the database on purpose: a visitor can
- * fill a bag, register or sign in, and the bag is still there afterwards, with
+ * fill a cart, register or sign in, and the cart is still there afterwards, with
  * no anonymous write access to the backend and nothing to clean up for a guest
  * who never checks out.
  */
@@ -39,7 +39,7 @@ function readStoredCart(): CartLine[] {
     if (!raw) return [];
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
-    // A stored bag is untrusted input: keep only well-formed lines.
+    // A stored cart is untrusted input: keep only well-formed lines.
     return parsed.flatMap((entry) => {
       if (!entry || typeof entry !== "object") return [];
       const line = entry as Partial<CartLine>;
