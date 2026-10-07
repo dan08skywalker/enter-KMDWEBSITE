@@ -27,15 +27,20 @@ const NAV_ITEMS = [
   { key: "nav.contact", to: "/contact" },
 ] as const;
 
+/**
+ * Brand lockup. The supplied logo is a square that carries the KMD emblem plus
+ * the "Powered by GreenChoyce" endorsement, so it is given a little more room
+ * than a bare glyph would need in order to stay legible next to the wordmark.
+ */
 function Brand() {
   const { t } = useTranslation();
   return (
     <Link to="/" className="flex items-center gap-2.5">
       <img
-        src="/brand/kmd-logo.png"
+        src="https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/2452f3f9.png"
         alt=""
         crossOrigin="anonymous"
-        className="h-10 w-10 shrink-0 rounded-lg bg-white object-contain ring-1 ring-gold/40 sm:h-11 sm:w-11"
+        className="h-12 w-12 shrink-0 rounded-lg bg-white object-contain p-0.5 ring-1 ring-gold/40 sm:h-14 sm:w-14"
       />
       <span className="flex min-w-0 flex-col leading-none">
         <span className="whitespace-nowrap text-sm font-bold tracking-tight">{t("common.appName")}</span>

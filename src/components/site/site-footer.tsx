@@ -59,10 +59,10 @@ export function SiteFooter() {
         <div>
           <div className="flex items-center gap-2.5">
             <img
-              src="/brand/kmd-logo.png"
+              src="https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/2452f3f9.png"
               alt=""
               crossOrigin="anonymous"
-              className="h-12 w-12 rounded-lg bg-white object-contain ring-1 ring-gold/40"
+              className="h-16 w-16 shrink-0 rounded-lg bg-white object-contain p-1 ring-1 ring-gold/40"
             />
             <span className="flex flex-col leading-none">
               <span className="font-display text-base font-bold tracking-tight">
