@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Link, NavLink } from "react-router-dom";
 import { Menu, ShoppingBag, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,20 +12,23 @@ import { useAuth } from "@/contexts/auth-context";
 import { useCart } from "@/contexts/cart-context";
 import { cn } from "@/lib/utils";
 
+// Labels are translation keys, not English literals, so the navigation follows
+// the selected language everywhere it is rendered.
 const NAV_ITEMS = [
-  { label: "Home", to: "/" },
-  { label: "About Us", to: "/about" },
-  { label: "Products", to: "/products" },
-  { label: "Shop", to: "/shop" },
-  { label: "Membership", to: "/packages" },
-  { label: "Testimonials", to: "/testimonials" },
-  { label: "FAQs", to: "/faqs" },
-  { label: "Learn", to: "/knowledge" },
-  { label: "News", to: "/blog" },
-  { label: "Contact", to: "/contact" },
+  { key: "nav.home", to: "/" },
+  { key: "nav.about", to: "/about" },
+  { key: "nav.products", to: "/products" },
+  { key: "nav.shop", to: "/shop" },
+  { key: "nav.membership", to: "/packages" },
+  { key: "nav.testimonials", to: "/testimonials" },
+  { key: "nav.faqs", to: "/faqs" },
+  { key: "nav.learn", to: "/knowledge" },
+  { key: "nav.news", to: "/blog" },
+  { key: "nav.contact", to: "/contact" },
 ] as const;
 
 function Brand() {
+  const { t } = useTranslation();
   return (
     <Link to="/" className="flex items-center gap-2.5">
       <img
@@ -34,9 +38,9 @@ function Brand() {
         className="h-10 w-10 shrink-0 rounded-lg bg-white object-contain ring-1 ring-gold/40 sm:h-11 sm:w-11"
       />
       <span className="flex min-w-0 flex-col leading-none">
-        <span className="whitespace-nowrap text-sm font-bold tracking-tight">KMD EMPIRE</span>
+        <span className="whitespace-nowrap text-sm font-bold tracking-tight">{t("common.appName")}</span>
         <span className="hidden whitespace-nowrap text-[10px] font-medium uppercase tracking-[0.16em] text-muted-foreground sm:block">
-          Health · Home · Everyday
+          {t("common.brandTagline")}
         </span>
       </span>
     </Link>
@@ -44,13 +48,14 @@ function Brand() {
 }
 
 export function SiteHeader() {
+  const { t } = useTranslation();
   const { session, isAdmin } = useAuth();
   const cart = useCart();
   const [cartOpen, setCartOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
 
   const accountLink = session ? (isAdmin ? "/admin" : "/app") : "/login";
-  const accountLabel = session ? (isAdmin ? "Admin console" : "My dashboard") : "Member area";
+  const accountKey = session ? (isAdmin ? "common.adminConsole" : "common.myDashboard") : "common.memberArea";
 
   return (
     <>
@@ -75,7 +80,7 @@ export function SiteHeader() {
                   )
                 }
               >
-                {item.label}
+                {t(item.key)}
               </NavLink>
             ))}
           </nav>
@@ -96,7 +101,7 @@ export function SiteHeader() {
               onClick={() => setCartOpen(true)}
             >
               <ShoppingBag className="h-4 w-4" />
-              <span className="hidden sm:inline">Bag</span>
+              <span className="hidden sm:inline">{t("common.bag")}</span>
               {cart.count > 0 ? (
                 <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-gold px-1 text-[10px] font-bold text-gold-foreground">
                   {cart.count}
@@ -107,14 +112,14 @@ export function SiteHeader() {
             <Button asChild variant="brand" size="sm">
               <Link to={accountLink}>
                 <UserRound className="h-4 w-4" />
-                <span className="hidden sm:inline">{accountLabel}</span>
-                <span className="sm:hidden">Account</span>
+                <span className="hidden sm:inline">{t(accountKey)}</span>
+                <span className="sm:hidden">{t("common.account")}</span>
               </Link>
             </Button>
 
             {!session ? (
               <Button asChild variant="gold" size="sm" className="hidden md:inline-flex">
-                <Link to="/register">Register</Link>
+                <Link to="/register">{t("common.register")}</Link>
               </Button>
             ) : null}
 
@@ -125,7 +130,7 @@ export function SiteHeader() {
                 </Button>
               </SheetTrigger>
               <SheetContent side="right" className="w-[86vw] max-w-sm overflow-y-auto">
-                <SheetTitle className="sr-only">Site menu</SheetTitle>
+                <SheetTitle className="sr-only">{t("common.sitemap")}</SheetTitle>
                 <nav className="mt-6 flex flex-col gap-1">
                   {NAV_ITEMS.map((item) => (
                     <NavLink
@@ -151,19 +156,19 @@ export function SiteHeader() {
                   <LanguageSwitcher />
                   <Button asChild variant="brand">
                     <Link to={accountLink} onClick={() => setMenuOpen(false)}>
-                      {accountLabel}
+                      {t(accountKey)}
                     </Link>
                   </Button>
                   {!session ? (
                     <Button asChild variant="gold">
                       <Link to="/register" onClick={() => setMenuOpen(false)}>
-                        Register now
+                        {t("common.registerNow")}
                       </Link>
                     </Button>
                   ) : null}
                   <Button asChild variant="outline">
                     <Link to="/track" onClick={() => setMenuOpen(false)}>
-                      Track an order
+                      {t("common.trackOrder")}
                     </Link>
                   </Button>
                 </div>

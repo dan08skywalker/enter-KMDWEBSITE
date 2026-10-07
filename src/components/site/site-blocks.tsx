@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   CheckCircle2,
   Coins,
@@ -76,25 +77,23 @@ export function BrandTile() {
 
 /** Inline CTA used at the end of content pages. */
 export function ShopCta() {
+  const { t } = useTranslation();
   return (
     <div className="kmd-hero rounded-2xl px-6 py-10 text-center sm:px-10">
-      <h2 className="text-xl font-bold text-white sm:text-2xl">Ready to order?</h2>
-      <p className="mx-auto mt-2 max-w-xl text-sm text-white/80">
-        Browse the catalogue, add what you need to your bag and check out as a guest — or join
-        the member plan and earn on every verified purchase in your team.
-      </p>
+      <h2 className="text-xl font-bold text-white sm:text-2xl">{t("cta.readyToOrder")}</h2>
+      <p className="mx-auto mt-2 max-w-xl text-sm text-white/80">{t("cta.readyToOrderDetail")}</p>
       <div className="mt-6 flex flex-wrap justify-center gap-3">
         <Link
           to="/shop"
           className="inline-flex h-11 items-center justify-center rounded-md bg-gold px-6 text-sm font-semibold text-gold-foreground shadow-[var(--shadow-gold)]"
         >
-          Shop all products
+          {t("cta.shopAllProducts")}
         </Link>
         <Link
           to="/register"
           className="inline-flex h-11 items-center justify-center rounded-md border border-white/35 bg-white/12 px-6 text-sm font-semibold text-white hover:bg-white/22"
         >
-          Become a member
+          {t("cta.becomeMember")}
         </Link>
       </div>
     </div>

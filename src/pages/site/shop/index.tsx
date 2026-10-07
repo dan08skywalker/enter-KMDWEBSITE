@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { LayoutGrid, Search, SlidersHorizontal } from "lucide-react";
 import { PageHero, Section, SiteShell } from "@/components/site/site-shell";
 import { ProductCard } from "@/components/site/product-card";
@@ -19,14 +20,15 @@ import { toNumber } from "@/lib/kmd/format";
 
 type SortKey = "featured" | "price-asc" | "price-desc" | "name";
 
-const SORT_LABELS: Record<SortKey, string> = {
-  featured: "Featured",
-  "price-asc": "Price: low to high",
-  "price-desc": "Price: high to low",
-  name: "Name: A to Z",
+const SORT_KEYS: Record<SortKey, string> = {
+  featured: "sort.featured",
+  "price-asc": "sort.priceAsc",
+  "price-desc": "sort.priceDesc",
+  name: "sort.name",
 };
 
 export default function ShopPage() {
+  const { t } = useTranslation();
   const { products, loading } = useStore();
   const [params, setParams] = useSearchParams();
 
@@ -85,8 +87,8 @@ export default function ShopPage() {
     <SiteShell>
       <PageHero
         eyebrow="Shop"
-        title="Everything KMD Empire sells, in one place"
-        intro="Promotional prices sit next to the regular price they replace, and stock shown here is the stock we can actually ship."
+        title={t("shop.title")}
+        intro={t("shop.intro")}
       />
 
       <Section>
@@ -96,20 +98,20 @@ export default function ShopPage() {
             <Input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search products by name, SKU or description"
+              placeholder={t("shop.search")}
               className="pl-9"
-              aria-label="Search products"
+              aria-label={t("shop.search")}
             />
           </div>
 
           <Select value={sort} onValueChange={(value) => setSort(value as SortKey)}>
-            <SelectTrigger aria-label="Sort products">
+            <SelectTrigger aria-label={t("shop.sort")}>
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {(Object.keys(SORT_LABELS) as SortKey[]).map((key) => (
+              {(Object.keys(SORT_KEYS) as SortKey[]).map((key) => (
                 <SelectItem key={key} value={key}>
-                  {SORT_LABELS[key]}
+                  {t(SORT_KEYS[key])}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -121,9 +123,9 @@ export default function ShopPage() {
               value={maxPrice}
               inputMode="decimal"
               onChange={(event) => setMaxPrice(event.target.value.replace(/[^0-9.]/g, ""))}
-              placeholder="Max price (PHP)"
+              placeholder={t("shop.maxPrice")}
               className="pl-9"
-              aria-label="Maximum price"
+              aria-label={t("shop.maxPrice")}
             />
           </div>
         </div>
@@ -136,7 +138,7 @@ export default function ShopPage() {
             onClick={() => applyCategory("all")}
           >
             <LayoutGrid className="h-3.5 w-3.5" />
-            All products
+            {t("shop.allProducts")}
           </Button>
           {categories.map((category) => (
             <Button
@@ -152,9 +154,7 @@ export default function ShopPage() {
         </div>
 
         <p className="mt-4 text-xs text-muted-foreground">
-          {loading
-            ? "Loading the catalogue…"
-            : `${visible.length} product${visible.length === 1 ? "" : "s"} shown`}
+          {loading ? t("shop.loading") : t("shop.count", { count: visible.length })}
         </p>
       </Section>
 
@@ -167,8 +167,8 @@ export default function ShopPage() {
           </div>
         ) : visible.length === 0 ? (
           <EmptyState
-            title="No products match those filters"
-            description="Try clearing the search box, choosing a different category or raising the maximum price."
+            title={t("shop.empty.title")}
+            description={t("shop.empty.description")}
           />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

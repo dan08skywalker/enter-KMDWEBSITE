@@ -1,33 +1,34 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { Facebook, Instagram, Mail, MapPin, Phone, Youtube } from "lucide-react";
 import { COMPANY } from "@/lib/site/content";
 import { useSiteList, useSiteText } from "@/contexts/store-context";
 import { MEMBER_ID_FORMAT } from "@/lib/kmd/constants";
 
 const QUICK_LINKS = [
-  { label: "Home", to: "/" },
-  { label: "About Us", to: "/about" },
-  { label: "Products", to: "/products" },
-  { label: "Shop", to: "/shop" },
-  { label: "Membership", to: "/packages" },
-  { label: "Referral Program", to: "/referral-program" },
-  { label: "Testimonials", to: "/testimonials" },
-  { label: "FAQs", to: "/faqs" },
+  { key: "nav.home", to: "/" },
+  { key: "nav.about", to: "/about" },
+  { key: "nav.products", to: "/products" },
+  { key: "nav.shop", to: "/shop" },
+  { key: "nav.membership", to: "/packages" },
+  { key: "nav.referralProgram", to: "/referral-program" },
+  { key: "nav.testimonials", to: "/testimonials" },
+  { key: "nav.faqs", to: "/faqs" },
 ] as const;
 
 const HELPFUL_LINKS = [
-  { label: "Knowledge Centre", to: "/knowledge" },
-  { label: "News & Updates", to: "/blog" },
-  { label: "Announcements", to: "/announcements" },
-  { label: "Track an Order", to: "/track" },
-  { label: "Contact Us", to: "/contact" },
-  { label: "Support", to: "/contact" },
+  { key: "nav.knowledgeCentre", to: "/knowledge" },
+  { key: "nav.newsUpdates", to: "/blog" },
+  { key: "nav.announcements", to: "/announcements" },
+  { key: "common.trackOrder", to: "/track" },
+  { key: "footer.contactUs", to: "/contact" },
+  { key: "nav.support", to: "/contact" },
 ] as const;
 
 const POLICY_LINKS = [
-  { label: "Privacy Policy", to: "/privacy-policy" },
-  { label: "Terms & Conditions", to: "/terms" },
-  { label: "Return & Refund Policy", to: "/refund-policy" },
+  { key: "nav.privacyPolicy", to: "/privacy-policy" },
+  { key: "nav.terms", to: "/terms" },
+  { key: "nav.refundPolicy", to: "/refund-policy" },
 ] as const;
 
 function TikTokIcon({ className }: { className?: string }) {
@@ -39,6 +40,7 @@ function TikTokIcon({ className }: { className?: string }) {
 }
 
 export function SiteFooter() {
+  const { t } = useTranslation();
   const phones = useSiteList("site.contact.phones", [...COMPANY.phones]);
   const emails = useSiteList("site.contact.emails", [...COMPANY.emails]);
   const tagline = useSiteText("site.tagline", COMPANY.tagline);
@@ -64,7 +66,7 @@ export function SiteFooter() {
             />
             <span className="flex flex-col leading-none">
               <span className="font-display text-base font-bold tracking-tight">
-                {COMPANY.name}
+                {t("common.appName")}
               </span>
               <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-white/60">
                 {website}
@@ -92,12 +94,12 @@ export function SiteFooter() {
         </div>
 
         <div>
-          <p className="kmd-eyebrow text-gold">Quick links</p>
+          <p className="kmd-eyebrow text-gold">{t("footer.quickLinks")}</p>
           <ul className="mt-4 space-y-2">
             {QUICK_LINKS.map((link) => (
               <li key={link.to + link.label}>
                 <Link to={link.to} className="text-xs text-white/75 hover:text-white">
-                  {link.label}
+                  {t(link.key)}
                 </Link>
               </li>
             ))}
@@ -105,12 +107,12 @@ export function SiteFooter() {
         </div>
 
         <div>
-          <p className="kmd-eyebrow text-gold">Help &amp; policies</p>
+          <p className="kmd-eyebrow text-gold">{t("footer.helpPolicies")}</p>
           <ul className="mt-4 space-y-2">
             {[...HELPFUL_LINKS, ...POLICY_LINKS].map((link) => (
               <li key={link.to + link.label}>
                 <Link to={link.to} className="text-xs text-white/75 hover:text-white">
-                  {link.label}
+                  {t(link.key)}
                 </Link>
               </li>
             ))}
@@ -118,7 +120,7 @@ export function SiteFooter() {
         </div>
 
         <div>
-          <p className="kmd-eyebrow text-gold">Contact us</p>
+          <p className="kmd-eyebrow text-gold">{t("footer.contactUs")}</p>
           <ul className="mt-4 space-y-3">
             {phones.map((phone) => (
               <li key={phone} className="flex items-start gap-2 text-xs text-white/75">
@@ -147,10 +149,10 @@ export function SiteFooter() {
       <div className="border-t border-white/12">
         <div className="mx-auto flex w-full max-w-6xl flex-col items-center justify-between gap-3 px-4 py-5 text-center sm:px-6 md:flex-row md:text-left">
           <p className="text-[11px] text-white/55">
-            &copy; {new Date().getFullYear()} {COMPANY.name}. All rights reserved.
+            &copy; {new Date().getFullYear()} {COMPANY.name}. {t("footer.rights")}
           </p>
           <p className="text-[11px] text-white/45">
-            Member IDs use the format <span className="font-mono">{MEMBER_ID_FORMAT}</span>
+            {t("footer.memberIdFormat")} <span className="font-mono">{MEMBER_ID_FORMAT}</span>
           </p>
         </div>
       </div>

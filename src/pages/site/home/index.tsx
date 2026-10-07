@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import {
   ArrowRight,
   BookOpen,
@@ -49,6 +50,7 @@ const SPOTLIGHT_VALUES = [
 ];
 
 export default function HomePage() {
+  const { t } = useTranslation();
   const { products, packages, loading } = useStore();
 
   const featured = products.filter((product) => product.inStock).slice(0, 4);
@@ -69,11 +71,11 @@ export default function HomePage() {
           <div>
             <span className="inline-flex items-center gap-2 rounded-full border border-white/25 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-white">
               <Sparkles className="h-3.5 w-3.5 text-gold" />
-              {COMPANY.positioning}
+              {t("home.hero.eyebrow")}
             </span>
 
             <h1 className="mt-6 font-display text-4xl font-extrabold leading-[1.08] tracking-tight text-white sm:text-5xl">
-              Problem-solving products for health, home and everyday living
+              {t("home.hero.title")}
             </h1>
 
             <p className="mt-5 max-w-xl text-sm leading-relaxed text-white/80 sm:text-base">
@@ -83,15 +85,15 @@ export default function HomePage() {
             <div className="mt-8 flex flex-wrap gap-3">
               <Button asChild variant="gold" size="xl">
                 <Link to="/shop">
-                  Shop now
+                  {t("home.hero.shopNow")}
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
               <Button asChild variant="hero-outline" size="xl">
-                <Link to="/register">Become a member</Link>
+                <Link to="/register">{t("home.hero.becomeMember")}</Link>
               </Button>
               <Button asChild variant="hero-ghost" size="xl" className="text-white underline underline-offset-4">
-                <Link to="/packages">See membership packages</Link>
+                <Link to="/packages">{t("home.hero.seePackages")}</Link>
               </Button>
             </div>
 
@@ -102,7 +104,7 @@ export default function HomePage() {
 
           {/* Featured best seller — real catalogue data, real stock. */}
           <div className="rounded-2xl border border-white/15 bg-white/[0.07] p-4 backdrop-blur">
-            <p className="kmd-eyebrow text-gold">Best seller</p>
+            <p className="kmd-eyebrow text-gold">{t("home.hero.bestSeller")}</p>
             {loading ? (
               <Skeleton className="mt-3 h-64 w-full" />
             ) : hero ? (
@@ -136,7 +138,7 @@ export default function HomePage() {
                   </div>
                   <Button asChild variant="brand" size="sm" className="mt-4 w-full">
                     <Link to={hero.slug ? `/shop/${hero.slug}` : "/shop"}>
-                      View product
+                      {t("home.hero.viewProduct")}
                       <ArrowRight className="h-3.5 w-3.5" />
                     </Link>
                   </Button>
@@ -186,8 +188,8 @@ export default function HomePage() {
       {/* ---------------- best sellers ---------------- */}
       <Section
         tone="muted"
-        title="Best-selling products"
-        intro="Live prices straight from the catalogue — the promotional price is what you pay, and the regular price is what it replaces."
+        title={t("home.bestSellers.title")}
+        intro={t("home.bestSellers.intro")}
       >
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -197,7 +199,7 @@ export default function HomePage() {
           </div>
         ) : fallbackFeatured.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No products are published yet. Please check back shortly.
+            {t("home.bestSellers.none")}
           </p>
         ) : (
           <>
@@ -209,7 +211,7 @@ export default function HomePage() {
             <div className="mt-6">
               <Button asChild variant="outline">
                 <Link to="/shop">
-                  View all products
+                  {t("home.bestSellers.viewAll")}
                   <ArrowRight className="h-4 w-4" />
                 </Link>
               </Button>
@@ -219,7 +221,7 @@ export default function HomePage() {
       </Section>
 
       {/* ---------------- categories ---------------- */}
-      <Section title="Shop by category" intro="Five ranges that cover the everyday essentials.">
+      <Section title={t("home.categories.title")} intro={t("home.categories.intro")}>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {HOMEPAGE_CATEGORIES.map((category) => {
             const Icon = CATEGORY_ICONS[category.name] ?? Sparkles;
@@ -235,7 +237,7 @@ export default function HomePage() {
                 <p className="mt-4 text-sm font-semibold">{category.name}</p>
                 <p className="mt-1 flex-1 text-xs text-muted-foreground">{category.blurb}</p>
                 <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-accent">
-                  Browse
+                  {t("home.categories.browse")}
                   <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
                 </span>
               </Link>
@@ -443,8 +445,8 @@ export default function HomePage() {
 
       {/* ---------------- membership ---------------- */}
       <Section
-        title="Membership packages"
-        intro="Join the plan and earn Unilevel points when a purchase in your sponsor chain is paid and confirmed. A purchase earns nothing until then."
+        title={t("home.membership.title")}
+        intro={t("home.membership.intro")}
       >
         {loading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -453,7 +455,7 @@ export default function HomePage() {
             ))}
           </div>
         ) : packages.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No membership package is published yet.</p>
+          <p className="text-sm text-muted-foreground">{t("home.membership.none")}</p>
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {packages.map((pkg) => {
@@ -474,7 +476,7 @@ export default function HomePage() {
                     />
                   ) : (
                     <p className="mt-3 text-xs font-semibold text-warning">
-                      Price to be published
+                      {t("home.membership.pricePending")}
                     </p>
                   )}
                 </div>
@@ -485,10 +487,9 @@ export default function HomePage() {
 
         <div className="mt-8 grid gap-4 lg:grid-cols-[1.3fr_1fr]">
           <div className="kmd-panel p-6">
-            <h3 className="text-sm font-semibold">How the five levels pay</h3>
+            <h3 className="text-sm font-semibold">{t("home.membership.howItPays")}</h3>
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              When a purchase in your team is paid and confirmed, the system traces upward from the
-              buyer through the registered sponsor chain.
+              {t("home.membership.howItPaysIntro")}
             </p>
             <ul className="mt-4 space-y-3">
               {SPOTLIGHT_VALUES.map((row) => (
@@ -502,7 +503,7 @@ export default function HomePage() {
             </ul>
             <Button asChild variant="outline" size="sm" className="mt-5">
               <Link to="/referral-program">
-                How the referral program works
+                {t("home.membership.howReferralWorks")}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </Button>
@@ -511,18 +512,17 @@ export default function HomePage() {
           <div className="kmd-brand-tile flex flex-col justify-between">
             <div>
               <div className="kmd-gold-rule" />
-              <h3 className="mt-4 text-lg font-bold text-white">Join the plan</h3>
+              <h3 className="mt-4 text-lg font-bold text-white">{t("home.membership.join")}</h3>
               <p className="mt-2 text-xs leading-relaxed text-white/80">
-                Register in one step. If a member shared their referral link with you, open that link
-                and your sponsor is locked automatically so your placement is correct from day one.
+                {t("home.membership.joinDetail")}
               </p>
             </div>
             <div className="mt-5 grid gap-2">
               <Button asChild variant="gold">
-                <Link to="/register">Create my member account</Link>
+                <Link to="/register">{t("home.membership.createAccount")}</Link>
               </Button>
               <Button asChild variant="hero-outline" size="sm">
-                <Link to="/login">I already have an account</Link>
+                <Link to="/login">{t("home.membership.haveAccount")}</Link>
               </Button>
             </div>
           </div>
@@ -530,40 +530,35 @@ export default function HomePage() {
       </Section>
 
       {/* ---------------- testimonials ---------------- */}
-      <Section tone="muted" title="What our customers say">
+      <Section tone="muted" title={t("home.testimonials.title")}>
         <TestimonialGrid />
         <p className="mt-4 text-[11px] text-muted-foreground">
-          Testimonials describe individual experiences. They are not a claim about results you will
-          get, and supplement products are not intended to diagnose, treat, cure or prevent any
-          disease.
+          {t("home.testimonials.note")}
         </p>
       </Section>
 
       {/* ---------------- knowledge + FAQ ---------------- */}
-      <Section title="Learn before you buy">
+      <Section title={t("home.learn.title")}>
         <div className="grid gap-8 lg:grid-cols-2">
           <div>
-            <h3 className="text-sm font-semibold">From the knowledge centre</h3>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Plain-language guides on ingredients, payment verification and how the member plan
-              actually settles.
-            </p>
+            <h3 className="text-sm font-semibold">{t("home.learn.fromKnowledge")}</h3>
+            <p className="mt-2 text-xs text-muted-foreground">{t("home.learn.fromKnowledgeDetail")}</p>
             <Button asChild variant="outline" size="sm" className="mt-4">
               <Link to="/knowledge">
                 <BookOpen className="h-3.5 w-3.5" />
-                Open the knowledge centre
+                {t("home.learn.openKnowledge")}
               </Link>
             </Button>
           </div>
 
           <div>
-            <h3 className="text-sm font-semibold">Frequently asked questions</h3>
+            <h3 className="text-sm font-semibold">{t("home.learn.faq")}</h3>
             <div className="mt-3">
               <FaqAccordion entries={FAQS.slice(0, 5)} />
             </div>
             <Button asChild variant="ghost" size="sm" className="mt-2 px-0 text-accent">
               <Link to="/faqs">
-                All questions
+                {t("home.learn.allQuestions")}
                 <ArrowRight className="h-3.5 w-3.5" />
               </Link>
             </Button>
@@ -584,20 +579,18 @@ export default function HomePage() {
 
 /** Minimal callout above the closing CTA, kept visually quiet. */
 function PageHeroTitleless() {
+  const { t } = useTranslation();
   return (
     <div className="kmd-panel flex flex-col items-center gap-4 px-6 py-10 text-center">
       <Sparkles className="h-7 w-7 text-gold" />
-      <h2 className="text-xl font-bold tracking-tight">Ready to be part of our community?</h2>
-      <p className="max-w-xl text-sm text-muted-foreground">
-        Join thousands of customers who trust our wellness, fuel-saving and energy-efficient
-        solutions.
-      </p>
+      <h2 className="text-xl font-bold tracking-tight">{t("home.community.title")}</h2>
+      <p className="max-w-xl text-sm text-muted-foreground">{t("home.community.detail")}</p>
       <div className="flex flex-wrap justify-center gap-3">
         <Button asChild variant="brand">
-          <Link to="/shop">Start shopping</Link>
+          <Link to="/shop">{t("home.community.startShopping")}</Link>
         </Button>
         <Button asChild variant="outline">
-          <Link to="/products">View all products</Link>
+          <Link to="/products">{t("home.bestSellers.viewAll")}</Link>
         </Button>
       </div>
     </div>
