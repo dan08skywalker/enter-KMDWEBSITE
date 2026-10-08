@@ -1,0 +1,7 @@
+update public.system_settings
+   set value = '1',
+       description = 'Shopping Wallet units received per 1 Unilevel point (default 1 POINT = PHP 1). Members convert at this rate in both directions; the reverse direction uses its inverse. Set 0 to keep conversions disabled.',
+       updated_at = now()
+ where key = 'wallet_conversion_rate';
+
+select key, value, description from public.system_settings where key in ('wallet_conversion_rate','wallet_conversion_fee_percent','point_to_peso_rate','currency_code') order by key;
