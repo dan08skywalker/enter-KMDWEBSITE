@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { CreditCard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { PageHeader } from "@/components/kmd/page-header";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
@@ -14,8 +15,6 @@ import { packageTier } from "@/lib/kmd/labels";
 
 interface MemberLoyaltyCardRow {
   id: string;
-  orderNumber: string;
-  cardNumber: string;
   tier: LoyaltyTier;
   tierLabel: string;
   productName: string;
@@ -28,84 +27,92 @@ export default function MemberLoyaltyCards() {
   const { profile, user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [cards, setCards] = useState<MemberLoyaltyCardRow[]>([]);
+  // Read fresh from the profile so a saved member-ID change reaches the card.
+  const [member, setMember] = useState<{ memberCode: string; fullName: string | null } | null>(null);
 
-  useEffect(() => {
+  const load = useCallback(async () => {
     if (!user) return;
-    let active = true;
+    setLoading(true);
 
-    void (async () => {
-      setLoading(true);
-
-      const { data: orders, error: orderError } = await supabase
+    const [profileResult, orderResult] = await Promise.all([
+      supabase.from("profiles").select("member_code, full_name").eq("id", user.id).maybeSingle(),
+      supabase
         .from("orders")
-        .select("id, order_number, created_at, status, order_items(sku, product_id, product_name)")
+        .select("id, created_at, status, order_items(sku, product_id, product_name)")
         .eq("buyer_profile_id", user.id)
         .eq("status", "confirmed")
-        .order("created_at", { ascending: false });
+        .order("created_at", { ascending: false }),
+    ]);
 
-      if (orderError) {
-        console.error("Could not load confirmed orders:", orderError.message);
-        setLoading(false);
-        return;
+    if (profileResult.error) {
+      console.error("Could not load the member record:", profileResult.error.message);
+    }
+    if (orderResult.error) {
+      console.error("Could not load confirmed orders:", orderResult.error.message);
+    }
+
+    const profileRow = profileResult.data as
+      | { member_code: string; full_name: string | null }
+      | null;
+    if (profileRow) {
+      setMember({ memberCode: profileRow.member_code, fullName: profileRow.full_name });
+    }
+
+    const rows = (orderResult.data ?? []) as unknown as Array<{
+      id: string;
+      created_at: string;
+      status: string;
+      order_items: Array<{ sku: string; product_id: string; product_name: string }> | null;
+    }>;
+
+    const productIds = Array.from(
+      new Set(rows.flatMap((order) => (order.order_items ?? []).map((item) => item.product_id))),
+    );
+
+    let packages: Array<{ product_id: string; name: string; tier: LoyaltyTier }> = [];
+    if (productIds.length > 0) {
+      const { data: packageRows, error: packageError } = await supabase
+        .from("membership_packages")
+        .select("product_id, name, tier")
+        .in("product_id", productIds);
+      if (packageError) {
+        console.error("Could not load membership packages:", packageError.message);
+      } else {
+        packages = (packageRows ?? []) as unknown as typeof packages;
       }
+    }
 
-      const rows = (orders ?? []) as unknown as Array<{
-        id: string;
-        order_number: string;
-        created_at: string;
-        status: string;
-        order_items: Array<{ sku: string; product_id: string; product_name: string }> | null;
-      }>;
-
-      const productIds = Array.from(
-        new Set(rows.flatMap((order) => (order.order_items ?? []).map((item) => item.product_id))),
-      );
-
-      let packages: Array<{ product_id: string; name: string; tier: LoyaltyTier }> = [];
-      if (productIds.length > 0) {
-        const { data: packageRows, error: packageError } = await supabase
-          .from("membership_packages")
-          .select("product_id, name, tier")
-          .in("product_id", productIds);
-        if (packageError) {
-          console.error("Could not load membership packages:", packageError.message);
-        } else {
-          packages = (packageRows ?? []) as unknown as typeof packages;
-        }
+    const built: MemberLoyaltyCardRow[] = [];
+    for (const order of rows) {
+      for (const item of order.order_items ?? []) {
+        const pkg = packages.find((entry) => entry.product_id === item.product_id);
+        if (!pkg) continue;
+        built.push({
+          id: `${order.id}-${item.sku}`,
+          tier: pkg.tier,
+          tierLabel: packageTier(pkg.tier).label,
+          productName: item.product_name,
+          sku: item.sku,
+          activationDate: order.created_at,
+          status: "Active",
+        });
       }
+    }
 
-      const built: MemberLoyaltyCardRow[] = [];
-      for (const order of rows) {
-        for (const item of order.order_items ?? []) {
-          const pkg = packages.find((entry) => entry.product_id === item.product_id);
-          if (!pkg) continue;
-          built.push({
-            id: `${order.id}-${item.sku}`,
-            orderNumber: order.order_number,
-            cardNumber: order.order_number,
-            tier: pkg.tier,
-            tierLabel: packageTier(pkg.tier).label,
-            productName: item.product_name,
-            sku: item.sku,
-            activationDate: order.created_at,
-            status: "Active",
-          });
-        }
-      }
-
-      if (active) {
-        setCards(built);
-        setLoading(false);
-      }
-    })();
-
-    return () => {
-      active = false;
-    };
+    setCards(built);
+    setLoading(false);
   }, [user]);
 
-  const memberName = profile?.full_name ?? "Member";
-  const memberCode = profile?.member_code ?? "";
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  useRealtimeRefresh(["profiles"], () => void load(), user ? `id=eq.${user.id}` : undefined);
+
+  // The card number is the cardholder's KMD member ID, taken from their profile.
+  const memberCode = member?.memberCode ?? profile?.member_code ?? "";
+  const memberName = member?.fullName ?? profile?.full_name ?? "Member";
+
   const currentTier = useMemo(() => {
     const latest = cards[0];
     return latest ? latest.tier : null;
@@ -114,7 +121,7 @@ export default function MemberLoyaltyCards() {
   const columns: Column<MemberLoyaltyCardRow>[] = [
     { key: "type", header: "Card Type", cell: (row) => <StatusBadge label={`${row.tierLabel} Loyalty Card`} tone={row.tier === "gold" ? "gold" : row.tier === "platinum" ? "platinum" : "info"} /> },
     { key: "name", header: "Member Name", cell: () => memberName },
-    { key: "number", header: "Card Number", cell: (row) => <span className="font-mono text-xs">{row.cardNumber}</span> },
+    { key: "number", header: "Card Number", cell: () => <span className="font-mono text-xs">{memberCode}</span> },
     { key: "activation", header: "Activation Date", cell: (row) => formatDate(row.activationDate) },
     { key: "status", header: "Status", cell: (row) => <StatusBadge label={row.status} tone="success" /> },
   ];
@@ -153,7 +160,6 @@ export default function MemberLoyaltyCards() {
                 tier={card.tier}
                 memberName={memberName}
                 memberCode={memberCode}
-                cardNumber={card.cardNumber}
                 activationDate={card.activationDate}
                 status={card.status}
               />

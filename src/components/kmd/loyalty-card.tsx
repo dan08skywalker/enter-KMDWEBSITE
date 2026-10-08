@@ -9,7 +9,6 @@ interface LoyaltyCardProps {
   tier: LoyaltyTier | string;
   memberName: string;
   memberCode: string;
-  cardNumber?: string | null;
   activationDate?: string | null;
   status?: string | null;
   className?: string;
@@ -51,7 +50,6 @@ export function LoyaltyCard({
   tier,
   memberName,
   memberCode,
-  cardNumber,
   activationDate,
   status,
   className,
@@ -107,7 +105,9 @@ export function LoyaltyCard({
             Card number
           </p>
           <p className={cn("mt-[2px] font-mono text-[16px] font-semibold leading-tight", text.value)}>
-            {cardNumber ?? memberCode}
+            {/* The card number is the cardholder's KMD member ID. The issuing order
+                number is deliberately not shown here — it stays on the order record. */}
+            {memberCode}
           </p>
         </div>
 
