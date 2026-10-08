@@ -117,8 +117,7 @@ export const ADMIN_NAV: NavSection[] = [
     items: [
       { label: "Reward Configuration", path: "/admin/reward-configuration", icon: Coins },
       { label: "Point Transactions", path: "/admin/point-transactions", icon: Receipt },
-      { label: "Loyalty Transactions", path: "/admin/loyalty-transactions", icon: Sparkles },
-      { label: "Adjust Loyalty Credits", path: "/admin/loyalty-adjustments", icon: HandCoins },
+      { label: "Loyalty Credits", path: "/admin/loyalty-transactions", icon: HandCoins },
       { label: "Redemptions", path: "/admin/redemptions", icon: Gift },
     ],
   },

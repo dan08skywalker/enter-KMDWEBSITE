@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Sparkles } from "lucide-react";
+import { HandCoins, History, Sparkles } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { PageHeader } from "@/components/kmd/page-header";
@@ -12,10 +12,18 @@ import { Points } from "@/components/kmd/amount";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDateTime, formatPoints, toNumber } from "@/lib/kmd/format";
 import { ledgerStatus } from "@/lib/kmd/labels";
+import { LoyaltyAdjustmentPanel } from "./loyalty-adjustment-panel";
 import type { LoyaltyLedgerRow } from "@/lib/kmd/types";
 
+/**
+ * Loyalty credits in the administrator console, in one place.
+ *
+ * "Adjust Credits" is the manual debit/credit control; "Transaction History" is
+ * the full ledger, which is deliberately separate from unilevel point activity.
+ */
 export default function AdminLoyaltyTransactions() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<LoyaltyLedgerRow[]>([]);
@@ -111,77 +119,96 @@ export default function AdminLoyaltyTransactions() {
   return (
     <>
       <PageHeader
-        title="Loyalty Transactions"
-        description="The Loyalty Credit ledger, shown separately from Unilevel point activity."
+        title="Loyalty Credits"
+        description="Adjust a member's loyalty credits by hand, and review the full loyalty credit ledger."
         actions={<ExportButton dataset="loyalty_ledger" />}
       />
 
-      <div className="kmd-panel border-dashed p-4">
-        <p className="text-xs text-muted-foreground">
-          Loyalty Credits live entirely in this ledger and its own balance. Unilevel bonuses never appear
-          here, and loyalty awards never appear in the point ledger — the two can be reconciled
-          independently.
-        </p>
-      </div>
+      <Tabs defaultValue="adjust">
+        <TabsList>
+          <TabsTrigger value="adjust">
+            <HandCoins className="mr-1.5 h-3.5 w-3.5" />
+            Adjust Credits
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="mr-1.5 h-3.5 w-3.5" />
+            Transaction History
+          </TabsTrigger>
+        </TabsList>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Switch id="loyalty-include-test" checked={includeTest} onCheckedChange={setIncludeTest} />
-        <Label htmlFor="loyalty-include-test" className="cursor-pointer text-xs">
-          Include test data
-        </Label>
-      </div>
+        <TabsContent value="adjust" className="mt-4">
+          <LoyaltyAdjustmentPanel />
+        </TabsContent>
 
-      <FilterBar className="flex-wrap">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search transaction, order, member or SKU" />
-        <div className="flex items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="loyalty-from" className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              From
-            </Label>
-            <Input id="loyalty-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="w-[150px]" />
+        <TabsContent value="history" className="mt-4 space-y-4">
+          <div className="kmd-panel border-dashed p-4">
+            <p className="text-xs text-muted-foreground">
+              Loyalty Credits live entirely in this ledger and its own balance. Unilevel bonuses never
+              appear here, and loyalty awards never appear in the point ledger — the two can be
+              reconciled independently. Manual adjustments are listed alongside purchase rewards.
+            </p>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="loyalty-to" className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              To
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Switch id="loyalty-include-test" checked={includeTest} onCheckedChange={setIncludeTest} />
+            <Label htmlFor="loyalty-include-test" className="cursor-pointer text-xs">
+              Include test data
             </Label>
-            <Input id="loyalty-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} className="w-[150px]" />
           </div>
-        </div>
-        <SelectFilter
-          value={status}
-          onChange={setStatus}
-          allLabel="All statuses"
-          options={[
-            { value: "posted", label: "Posted" },
-            { value: "pending", label: "Held" },
-            { value: "reversed", label: "Reversed" },
-          ]}
-        />
-      </FilterBar>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          <span className="font-semibold text-foreground">{filtered.length}</span> rows
-        </span>
-        <span>
-          Total credited{" "}
-          <span className="font-semibold text-[hsl(var(--gold))]">{formatPoints(totalCredit)}</span>
-        </span>
-      </div>
+          <FilterBar className="flex-wrap">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search transaction, order, member or SKU" />
+            <div className="flex items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="loyalty-from" className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  From
+                </Label>
+                <Input id="loyalty-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="w-[150px]" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="loyalty-to" className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  To
+                </Label>
+                <Input id="loyalty-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} className="w-[150px]" />
+              </div>
+            </div>
+            <SelectFilter
+              value={status}
+              onChange={setStatus}
+              allLabel="All statuses"
+              options={[
+                { value: "posted", label: "Posted" },
+                { value: "pending", label: "Held" },
+                { value: "reversed", label: "Reversed" },
+              ]}
+            />
+          </FilterBar>
 
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        rowKey={(row) => row.id}
-        loading={loading}
-        empty={
-          <EmptyState
-            icon={Sparkles}
-            title="No loyalty transactions"
-            description="No loyalty credit has been awarded yet. Configure a Loyalty Credit value in Reward Configuration to start issuing them."
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              <span className="font-semibold text-foreground">{filtered.length}</span> rows
+            </span>
+            <span>
+              Total credited{" "}
+              <span className="font-semibold text-[hsl(var(--gold))]">{formatPoints(totalCredit)}</span>
+            </span>
+          </div>
+
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey={(row) => row.id}
+            loading={loading}
+            empty={
+              <EmptyState
+                icon={Sparkles}
+                title="No loyalty transactions"
+                description="No loyalty credit has been awarded yet. Record a manual adjustment, or configure a Loyalty Credit value in Reward Configuration to start issuing them."
+              />
+            }
           />
-        }
-      />
+        </TabsContent>
+      </Tabs>
     </>
   );
 }
