@@ -1,0 +1,204 @@
+-- ============================================================
+-- KMD EMPIRE · migration 9
+--  1. Fix the sponsor-change failure. The platform rejects an unqualified
+--     DELETE, and the closure rebuild used one, so every sponsor change
+--     returned "DELETE requires a WHERE clause" at runtime.
+--  2. Add member deletion (safe: it refuses rather than destroying records).
+--  3. Add member deactivation, which is the correct alternative when a member
+--     has financial history that must be kept.
+-- ============================================================
+
+create or replace function public.kmd_rebuild_closure()
+returns integer
+language plpgsql security definer set search_path = public as $$
+declare
+  i int;
+  v_total int;
+begin
+  -- A WHERE clause is mandatory here: the platform blocks unqualified DELETE
+  -- statements, and the rebuild clears the whole derived closure table.
+  delete from public.sponsor_relationships where descendant_id is not null;
+
+  insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+  select p.id, p.direct_sponsor_id, 1
+  from public.profiles p
+  where p.direct_sponsor_id is not null
+    and p.direct_sponsor_id <> p.id
+  on conflict do nothing;
+
+  for i in 2..5 loop
+    insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+    select sr.descendant_id, p.direct_sponsor_id, i
+    from public.sponsor_relationships sr
+    join public.profiles p on p.id = sr.ancestor_id
+    where sr.level = i - 1
+      and p.direct_sponsor_id is not null
+      -- never let a member become their own ancestor, which would make the
+      -- closure self-contradictory
+      and p.direct_sponsor_id <> sr.descendant_id
+    on conflict do nothing;
+  end loop;
+
+  select count(*) into v_total from public.sponsor_relationships;
+  return v_total;
+end $$;
+
+-- ---------- member deactivation / reactivation ----------
+create or replace function public.kmd_set_member_status(
+  p_member uuid,
+  p_status text,
+  p_actor uuid,
+  p_reason text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+begin
+  if p_status not in ('active','inactive','suspended') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_STATUS',
+      'reasonText','Status must be active, inactive or suspended');
+  end if;
+
+  select * into v_member from public.profiles where id = p_member for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND','reasonText','Member record not found');
+  end if;
+
+  if p_status <> 'active' and p_actor = p_member then
+    return jsonb_build_object('status','FAILED','reason','CANNOT_CHANGE_OWN_STATUS',
+      'reasonText','You cannot change your own account status');
+  end if;
+
+  update public.profiles
+    set account_status = p_status,
+        activation_date = case
+          when p_status = 'active' then coalesce(activation_date, now())
+          else activation_date
+        end
+    where id = p_member;
+
+  perform public.kmd_audit(p_actor, 'MEMBERSHIP_STATUS_CHANGE', p_member, null, 'profiles', p_member::text,
+    jsonb_build_object('accountStatus', v_member.account_status),
+    jsonb_build_object('accountStatus', p_status),
+    coalesce(p_reason, 'Membership status changed'), v_member.is_test);
+
+  return jsonb_build_object('status','UPDATED','memberCode', v_member.member_code,
+    'accountStatus', p_status,
+    'reasonText','Membership status is now ' || p_status);
+end $$;
+
+-- ---------- member deletion ----------
+-- Deletion is deliberately guarded. Financial and network records are never
+-- destroyed to satisfy a delete: the function refuses with the specific reason
+-- and the administrator deactivates or re-places the member instead. Anything
+-- unexpected still fails safely, because the whole call is one transaction.
+create or replace function public.kmd_delete_member(
+  p_member uuid,
+  p_actor uuid,
+  p_reason text default null,
+  p_confirm_code text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_downline int := 0;
+  v_ledger int := 0;
+  v_orders int := 0;
+  v_redemptions int := 0;
+  v_proofs int := 0;
+  v_wallet int := 0;
+  v_content int := 0;
+begin
+  select * into v_member from public.profiles where id = p_member;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND','reasonText','Member record not found');
+  end if;
+
+  if v_member.id = p_actor then
+    return jsonb_build_object('status','FAILED','reason','CANNOT_DELETE_SELF',
+      'reasonText','You cannot delete the account you are signed in with');
+  end if;
+
+  if public.kmd_is_admin(p_member) then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_HAS_ADMIN_ROLE',
+      'reasonText','This member holds an administrator role. Remove the administrator role before deleting the account.');
+  end if;
+
+  if coalesce(trim(p_reason), '') = '' then
+    return jsonb_build_object('status','FAILED','reason','REASON_REQUIRED',
+      'reasonText','A reason is required and is recorded on the audit log');
+  end if;
+
+  if p_confirm_code is null or upper(trim(p_confirm_code)) <> upper(v_member.member_code) then
+    return jsonb_build_object('status','FAILED','reason','CONFIRMATION_MISMATCH',
+      'reasonText','Type the member code ' || v_member.member_code || ' exactly to confirm the deletion');
+  end if;
+
+  select count(*) into v_downline from public.sponsor_relationships where ancestor_id = p_member;
+  select count(*) into v_ledger from public.point_ledger
+    where beneficiary_id = p_member or buyer_profile_id = p_member or sponsor_id = p_member;
+  select count(*) into v_orders from public.orders where buyer_profile_id = p_member;
+  select count(*) into v_redemptions from public.redemptions where member_id = p_member;
+  select count(*) into v_proofs from public.payment_proofs where member_id = p_member;
+  select count(*) into v_wallet from public.shopping_wallet_ledger where member_id = p_member;
+  select count(*) into v_content from public.content_posts where author_id = p_member;
+
+  if v_orders > 0 or v_ledger > 0 or v_redemptions > 0 or v_proofs > 0 or v_wallet > 0 then
+    return jsonb_build_object(
+      'status','FAILED',
+      'reason','MEMBER_HAS_HISTORY',
+      'reasonText','This member has financial history that must be kept: ' || v_orders || ' order(s), '
+        || v_ledger || ' ledger entr(ies), ' || v_redemptions || ' redemption(s), '
+        || v_proofs || ' payment proof(s), ' || v_wallet || ' wallet entr(ies). '
+        || 'Deactivate the account instead of deleting it.',
+      'orders', v_orders,
+      'ledgerEntries', v_ledger,
+      'redemptions', v_redemptions,
+      'paymentProofs', v_proofs,
+      'walletEntries', v_wallet);
+  end if;
+
+  if v_downline > 0 then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_HAS_DOWNLINE',
+      'reasonText','This member sponsors ' || v_downline
+        || ' member(s) in their downline. Move them to another sponsor before deleting this account.',
+      'downlineMembers', v_downline);
+  end if;
+
+  if v_content > 0 then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_HAS_CONTENT',
+      'reasonText','This member authored ' || v_content
+        || ' content post(s). Remove or reassign them before deleting the account.',
+      'contentPosts', v_content);
+  end if;
+
+  -- The audit row is written before the profile disappears and keeps the member
+  -- code as text, so the trail survives the deletion.
+  perform public.kmd_audit(p_actor, 'MEMBER_DELETED', null, null, 'profiles', p_member::text,
+    jsonb_build_object(
+      'memberCode', v_member.member_code,
+      'fullName', v_member.full_name,
+      'username', v_member.username,
+      'email', v_member.email,
+      'sponsorCode', v_member.sponsor_code,
+      'accountStatus', v_member.account_status,
+      'unilevelPointsBalance', v_member.unilevel_points_balance,
+      'loyaltyCreditsBalance', v_member.loyalty_credits_balance,
+      'shoppingWalletBalance', v_member.shopping_wallet_balance),
+    jsonb_build_object('deleted', true),
+    p_reason, v_member.is_test);
+
+  delete from public.user_roles where user_id = p_member;
+  delete from public.sponsor_relationships where descendant_id = p_member or ancestor_id = p_member;
+  delete from public.profiles where id = p_member;
+
+  return jsonb_build_object('status','DELETED','memberId', p_member,
+    'memberCode', v_member.member_code,
+    'reasonText','Member ' || v_member.member_code || ' deleted');
+end $$;
+
+-- ---------- grants ----------
+revoke all on function public.kmd_set_member_status(uuid,text,uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_delete_member(uuid,uuid,text,text) from public, anon, authenticated;
+grant execute on function public.kmd_set_member_status(uuid,text,uuid,text) to service_role;
+grant execute on function public.kmd_delete_member(uuid,uuid,text,text) to service_role;

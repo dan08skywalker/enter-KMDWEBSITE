@@ -1,0 +1,7 @@
+-- Remove the TEMPORARY debugging elevation granted earlier in this session.
+-- testsponsor1 was briefly given super_admin so the administrator path could be
+-- exercised with a credential I hold; that elevation is no longer needed. Its
+-- own 'retailer' role is untouched.
+delete from public.user_roles
+ where role = 'super_admin'
+   and user_id = (select id from public.profiles where username = 'testsponsor1');

@@ -5151,6 +5151,15 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_delete_member: {
+        Args: {
+          p_actor: string
+          p_confirm_code?: string
+          p_member: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
       kmd_diagnose_order: {
         Args: { p_identifier: string }
         Returns: Json
@@ -5266,6 +5275,15 @@ export type Database = {
       }
       kmd_set_member_role: {
         Args: { p_actor: string; p_role: string; p_user_id: string }
+        Returns: Json
+      }
+      kmd_set_member_status: {
+        Args: {
+          p_actor: string
+          p_member: string
+          p_reason?: string
+          p_status: string
+        }
         Returns: Json
       }
       kmd_set_order_status: {
@@ -5570,6 +5588,39 @@ export type Database = {
         Relationships: []
       }
       messages_2026_10_10: {
+        Row: {
+          event: string | null
+          extension: string
+          id: string
+          inserted_at: string
+          payload: Json | null
+          private: boolean | null
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          event?: string | null
+          extension: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          event?: string | null
+          extension?: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      messages_2026_10_11: {
         Row: {
           event: string | null
           extension: string

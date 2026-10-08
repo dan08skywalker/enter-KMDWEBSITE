@@ -108,7 +108,18 @@ export default function AdminOrderDetail() {
     if (result && typeof result.status === "string") {
       setEngineResult(result as EngineRunResult);
     }
-    toast.success(successMessage);
+
+    if (result?.status === "FAILED" || result?.status === "NOT_QUALIFIED") {
+      // Refusals arrive inside a successful HTTP response; reporting success here
+      // would tell the administrator the payment went through when it did not.
+      toast.error(successMessage + " did not complete", {
+        description: result.reasonText ?? "The backend refused the action.",
+      });
+    } else if (result?.status === "ALREADY_PROCESSED") {
+      toast.info(result.reasonText ?? "This order was already processed");
+    } else {
+      toast.success(successMessage);
+    }
     await load();
     return {};
   };

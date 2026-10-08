@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, MoreHorizontal, RefreshCw, Search, Users } from "lucide-react";
+import { Loader2, MoreHorizontal, RefreshCw, Search, Trash2, UserRoundX, UserRoundCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
@@ -45,7 +45,15 @@ import { formatDate, formatPoints } from "@/lib/kmd/format";
 import { accountStatus, packageTier } from "@/lib/kmd/labels";
 import type { MembershipPackage, Profile } from "@/lib/kmd/types";
 
-type ActionKind = "activate" | "account_type" | "role" | "sponsor" | "adjust" | "reconcile";
+type ActionKind =
+  | "activate"
+  | "account_type"
+  | "role"
+  | "sponsor"
+  | "adjust"
+  | "reconcile"
+  | "status"
+  | "delete";
 
 interface ActiveAction {
   kind: ActionKind;
@@ -82,6 +90,8 @@ export default function AdminMembers() {
   const [adjustPoints, setAdjustPoints] = useState("");
   const [direction, setDirection] = useState("CREDIT");
   const [reconcile, setReconcile] = useState<ReconcileResult | null>(null);
+  const [memberStatus, setMemberStatus] = useState("inactive");
+  const [confirmCode, setConfirmCode] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -140,6 +150,8 @@ export default function AdminMembers() {
     setAdjustPoints("");
     setDirection("CREDIT");
     setReconcile(null);
+    setMemberStatus(member.account_status === "active" ? "inactive" : "active");
+    setConfirmCode("");
   };
 
   const closeAction = () => {
@@ -147,10 +159,12 @@ export default function AdminMembers() {
     setReconcile(null);
   };
 
+  type ActionResult = { status?: string; reasonText?: string; reason?: string };
+
   const run = async (body: Record<string, unknown>, successMessage: string) => {
     if (!action) return;
     setBusy(true);
-    const outcome = await invokeFunction<{ ok?: boolean; result?: Record<string, unknown> }>(
+    const outcome = await invokeFunction<{ ok?: boolean; result?: ActionResult }>(
       "admin-actions",
       body,
     );
@@ -160,6 +174,19 @@ export default function AdminMembers() {
       toast.error(successMessage + " failed", { description: outcome.error });
       return;
     }
+
+    // The backend also reports refusals inside a successful HTTP response, for
+    // example a sponsor move that would create a cycle. Surface that reason
+    // instead of claiming the action worked.
+    const result = outcome.data?.result;
+    if (result?.status === "FAILED" || result?.status === "REJECTED") {
+      toast.error(successMessage + " was refused", {
+        description: result.reasonText ?? result.reason ?? "The request was not accepted.",
+      });
+      await load();
+      return;
+    }
+
     toast.success(successMessage);
     closeAction();
     await load();
@@ -232,6 +259,32 @@ export default function AdminMembers() {
         setReconcile(outcome.data.result);
         return;
       }
+      case "status":
+        if (!reason.trim()) {
+          toast.error("A reason is required for a status change");
+          return;
+        }
+        return run(
+          { action: "set_member_status", memberId: member.id, status: memberStatus, reason },
+          memberStatus === "active"
+            ? `${member.member_code} reactivated`
+            : `${member.member_code} set to ${memberStatus}`,
+        );
+      case "delete":
+        if (!reason.trim()) {
+          toast.error("A reason is required for deleting a member");
+          return;
+        }
+        if (confirmCode.trim().toUpperCase() !== member.member_code.toUpperCase()) {
+          toast.error("Type the member code exactly to confirm", {
+            description: `Expected ${member.member_code}`,
+          });
+          return;
+        }
+        return run(
+          { action: "delete_member", memberId: member.id, confirmCode: confirmCode.trim(), reason },
+          `${member.member_code} deleted`,
+        );
       default:
         return;
     }
@@ -298,6 +351,27 @@ export default function AdminMembers() {
               <RefreshCw className="h-3.5 w-3.5" />
               Reconcile balance
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => openAction("status", row)}>
+              {row.account_status === "active" ? (
+                <>
+                  <UserRoundX className="h-3.5 w-3.5" />
+                  Deactivate member
+                </>
+              ) : (
+                <>
+                  <UserRoundCheck className="h-3.5 w-3.5" />
+                  Reactivate member
+                </>
+              )}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={() => openAction("delete", row)}
+              className="text-destructive focus:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Delete member
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       ),
@@ -311,6 +385,8 @@ export default function AdminMembers() {
     sponsor: "Change sponsor",
     adjust: "Adjust points",
     reconcile: "Reconcile balance",
+    status: "Change membership status",
+    delete: "Delete member",
   };
 
   return (
@@ -531,6 +607,76 @@ export default function AdminMembers() {
             </div>
           ) : null}
 
+          {action?.kind === "status" ? (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="member-status">New status</Label>
+                <Select value={memberStatus} onValueChange={setMemberStatus}>
+                  <SelectTrigger id="member-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="inactive">Inactive</SelectItem>
+                    <SelectItem value="suspended">Suspended</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="status-reason">Reason (recorded on the audit log)</Label>
+                <Textarea
+                  id="status-reason"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  rows={2}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Nothing is deleted. An inactive or suspended member is simply no longer treated as a
+                qualified upline, and the change can be reversed at any time.
+              </p>
+            </div>
+          ) : null}
+
+          {action?.kind === "delete" ? (
+            <div className="space-y-4">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+                <p className="text-xs font-semibold text-destructive">
+                  This permanently removes the member record.
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Deletion is refused whenever records that must be kept are involved. It will not proceed
+                  if the member has orders, ledger entries, redemptions, wallet activity or payment proofs,
+                  because financial history is never destroyed. It is also refused when the member sponsors
+                  a downline, holds an administrator role, or has authored content. In those cases
+                  deactivate the account instead.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delete-confirm">
+                  Type <span className="font-mono">{action.member.member_code}</span> to confirm
+                </Label>
+                <Input
+                  id="delete-confirm"
+                  value={confirmCode}
+                  onChange={(event) => setConfirmCode(event.target.value)}
+                  placeholder="KMD-0000-0000-0000-0000"
+                  className="font-mono"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="delete-reason">Reason (recorded on the audit log)</Label>
+                <Textarea
+                  id="delete-reason"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                  rows={2}
+                />
+              </div>
+            </div>
+          ) : null}
+
           {action?.kind === "reconcile" ? (
             <div className="space-y-3">
               {busy && !reconcile ? (
@@ -577,15 +723,20 @@ export default function AdminMembers() {
             <Button variant="outline" onClick={closeAction} disabled={busy}>
               {action?.kind === "reconcile" ? "Close" : "Cancel"}
             </Button>
-            {action?.kind !== "reconcile" ? (
-              <Button onClick={() => void confirmAction()} disabled={busy}>
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                Apply
-              </Button>
-            ) : (
+            {action?.kind === "reconcile" ? (
               <Button onClick={() => void confirmAction()} disabled={busy}>
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
                 Run comparison
+              </Button>
+            ) : action?.kind === "delete" ? (
+              <Button variant="destructive" onClick={() => void confirmAction()} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Delete member
+              </Button>
+            ) : (
+              <Button onClick={() => void confirmAction()} disabled={busy}>
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                Apply
               </Button>
             )}
           </DialogFooter>

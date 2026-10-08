@@ -179,7 +179,14 @@ export default function AdminPaymentApprovals() {
 
     const result = outcome.data?.result ?? null;
     if (result && typeof result.status === "string") setEngineResult(result);
-    if (result?.status === "ALREADY_PROCESSED") {
+
+    if (result?.status === "FAILED" || result?.status === "NOT_QUALIFIED") {
+      // A refusal still arrives inside a successful HTTP response, so it must not
+      // be reported as though the payment went through.
+      toast.error(message + " did not complete", {
+        description: result.reasonText ?? "The backend refused the action.",
+      });
+    } else if (result?.status === "ALREADY_PROCESSED") {
       toast.info("This payment was already approved, so nothing was paid again");
     } else {
       toast.success(message);

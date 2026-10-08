@@ -148,6 +148,48 @@ Deno.serve(async (req) => {
           p_reason: reason ?? "Sponsor changed by administrator",
         });
 
+      case "set_member_status":
+        return run("kmd_set_member_status", {
+          p_member: String(body?.memberId ?? ""),
+          p_status: String(body?.status ?? ""),
+          p_actor: actorId,
+          p_reason: reason ?? "Membership status changed by administrator",
+        });
+
+      case "delete_member": {
+        // Deletion is guarded in the database function: it refuses when records
+        // that must be kept would be destroyed, and returns the specific reason.
+        const memberId = String(body?.memberId ?? "");
+        const { data, error } = await svc.rpc("kmd_delete_member", {
+          p_member: memberId,
+          p_actor: actorId,
+          p_reason: reason ?? null,
+          p_confirm_code: body?.confirmCode ? String(body.confirmCode) : null,
+        });
+
+        if (error) {
+          console.error("admin-actions delete_member failed:", error.message);
+          return json({ error: "ACTION_FAILED", message: error.message.replace(/^[A-Z_]+:\s*/, "") }, 400);
+        }
+
+        if (data?.status !== "DELETED") {
+          console.log("admin-actions delete_member refused:", data?.reason, data?.reasonText);
+          return json({ ok: false, result: data });
+        }
+
+        // The member record is gone, so remove the sign-in as well. Otherwise the
+        // account could still authenticate against a profile that no longer exists.
+        let signInRemoved = true;
+        const { error: authError } = await svc.auth.admin.deleteUser(memberId);
+        if (authError) {
+          signInRemoved = false;
+          console.error("admin-actions delete_member could not remove the sign-in:", authError.message);
+        }
+
+        console.log("admin-actions delete_member ->", data?.memberCode, "signInRemoved:", signInRemoved);
+        return json({ ok: true, result: { ...data, signInRemoved } });
+      }
+
       case "adjust_points":
         return run("kmd_adjust_points", {
           p_member: String(body?.memberId ?? ""),

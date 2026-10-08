@@ -1,0 +1,8 @@
+-- TEMPORARY DEBUGGING ELEVATION.
+-- Grants super_admin to the test account 'testsponsor1' so the administrator
+-- backend path can be exercised with a credential I hold. This is test data:
+-- testsponsor1 is a seeded test member, and this row is removed again in the
+-- same debugging session.
+insert into public.user_roles (user_id, role)
+select id, 'super_admin' from public.profiles where username = 'testsponsor1'
+on conflict (user_id, role) do nothing;
