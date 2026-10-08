@@ -27,3 +27,21 @@ export const QUICK_POINT_AMOUNTS = [500, 1000, 1500, 5000] as const;
 export const PASSWORD_HINT = "At least 6 characters, letters and numbers only";
 
 export const TEST_ACCOUNT_PASSWORD = "KmdTest2026";
+
+/**
+ * Loyalty card cover artwork, one per tier.
+ *
+ * Classic uses the silver cover, Gold the gold cover and Platinum the black
+ * cover, matching the artwork supplied for each tier. Each cover carries the
+ * brand mark in the top-right corner and embossed leaves along the bottom-right,
+ * so card text is kept to the left half. Trial has no cover and falls back to the
+ * designed gradient.
+ */
+export const LOYALTY_CARD_ART: Partial<Record<"classic" | "gold" | "platinum", string>> = {
+  classic: "/cards/classic.webp",
+  gold: "/cards/gold.webp",
+  platinum: "/cards/platinum.webp",
+};
+
+/** Aspect ratio of the supplied covers (1583x993), which the card art follows. */
+export const LOYALTY_CARD_ASPECT = "aspect-[1.594/1]";
