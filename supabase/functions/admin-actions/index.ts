@@ -331,6 +331,18 @@ Deno.serve(async (req) => {
           p_actor: actorId,
         });
 
+      case "adjust_loyalty_credits":
+        // The reason is deliberately not defaulted: the database refuses an
+        // adjustment without one, and it is stored on the ledger entry.
+        return run("kmd_adjust_loyalty_credits", {
+          p_member: String(body?.memberId ?? ""),
+          p_amount: Number(body?.amount ?? 0),
+          p_direction: String(body?.direction ?? "CREDIT"),
+          p_reason: reason,
+          p_actor: actorId,
+          p_idempotency_key: body?.idempotencyKey ? String(body.idempotencyKey) : null,
+        });
+
       case "reverse_reward":
         return run("kmd_reverse_reward", {
           p_ledger_id: String(body?.ledgerId ?? ""),

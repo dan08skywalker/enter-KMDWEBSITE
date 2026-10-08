@@ -1,0 +1,154 @@
+-- ============================================================
+-- KMD EMPIRE · migration 13 · admin adjustment of loyalty credits
+--
+-- The loyalty credit ledger records what the reward engine paid. A manual
+-- adjustment is also a ledger entry, never an edit: nothing historical is
+-- rewritten and no earning, expiration or redemption rule changes.
+--
+-- Two columns are added so an adjustment can state the balance it moved from and
+-- to, which is what the brief asks a transaction-history entry to carry. They stay
+-- null on engine-generated rows, where a per-row balance would be invented data.
+-- ============================================================
+
+alter table public.loyalty_credit_ledger
+  add column if not exists balance_before numeric(14,2);
+
+alter table public.loyalty_credit_ledger
+  add column if not exists balance_after numeric(14,2);
+
+comment on column public.loyalty_credit_ledger.balance_before is
+  'Ledger balance immediately before an administrator adjustment.';
+comment on column public.loyalty_credit_ledger.balance_after is
+  'Ledger balance immediately after an administrator adjustment.';
+
+-- ---------- the adjustment ----------
+create or replace function public.kmd_adjust_loyalty_credits(
+  p_member uuid,
+  p_amount numeric,
+  p_direction text,
+  p_reason text,
+  p_actor uuid,
+  p_idempotency_key text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_direction text := upper(trim(coalesce(p_direction, '')));
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+  v_before numeric(14,2) := 0;
+  v_after numeric(14,2) := 0;
+  v_txn text;
+  v_existing text;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+begin
+  if p_amount is null or p_amount <= 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_AMOUNT',
+      'reasonText','Enter an amount greater than zero');
+  end if;
+
+  if p_amount > 9999999.99 then
+    return jsonb_build_object('status','FAILED','reason','AMOUNT_TOO_LARGE',
+      'reasonText','That amount is larger than a single adjustment allows');
+  end if;
+
+  if v_direction not in ('CREDIT','DEBIT') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_DIRECTION',
+      'reasonText','Choose whether to add or deduct credits');
+  end if;
+
+  if v_reason is null then
+    return jsonb_build_object('status','FAILED','reason','REASON_REQUIRED',
+      'reasonText','A reason is required and is stored on the ledger entry');
+  end if;
+
+  -- Lock the member first. Every concurrent adjustment for this member waits
+  -- here, so two deductions can never both pass the balance check.
+  select * into v_member from public.profiles where id = p_member for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND',
+      'reasonText','Member record not found');
+  end if;
+
+  -- A retried submission (a double click, or a resend after a dropped reply)
+  -- carries the same key, so it is recognised instead of applied twice.
+  if v_key is not null then
+    select transaction_id into v_existing
+    from public.loyalty_credit_ledger
+    where idempotency_key = v_key
+    limit 1;
+
+    if v_existing is not null then
+      return jsonb_build_object('status','DUPLICATE','reason','DUPLICATE_SUBMISSION',
+        'transactionId', v_existing,
+        'memberCode', v_member.member_code,
+        'balanceAfter', public.kmd_loyalty_credit_balance(p_member),
+        'reasonText','This adjustment was already applied, so nothing was changed');
+    end if;
+  end if;
+
+  v_before := public.kmd_loyalty_credit_balance(p_member);
+
+  if v_direction = 'DEBIT' and p_amount > v_before then
+    return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_LOYALTY_CREDITS',
+      'reasonText','That deduction is larger than the available balance. A loyalty-credit balance cannot go negative.',
+      'balanceBefore', v_before,
+      'requested', p_amount,
+      'maximumDeductible', v_before);
+  end if;
+
+  v_after := case when v_direction = 'CREDIT'
+                  then v_before + p_amount
+                  else v_before - p_amount end;
+
+  v_txn := 'KMD-LY-' || lpad(nextval('public.kmd_loyalty_txn_seq')::text, 8, '0');
+
+  insert into public.loyalty_credit_ledger (
+    transaction_id, beneficiary_id, beneficiary_member_code, credit_amount,
+    direction, status, trigger_event, posted_at, processed_by,
+    idempotency_key, note, is_test, balance_before, balance_after
+  ) values (
+    v_txn, p_member, v_member.member_code, p_amount,
+    v_direction, 'posted', 'admin_adjustment', now(), p_actor,
+    v_key, v_reason, v_member.is_test, v_before, v_after
+  );
+
+  -- The cached balance exists for fast lists; the ledger above is the source of
+  -- truth, and the two are kept in step so reconciliation stays clean.
+  update public.profiles
+    set loyalty_credits_balance = v_after
+    where id = p_member;
+
+  perform public.kmd_audit(p_actor, 'LOYALTY_CREDIT_ADJUSTMENT', p_member, null,
+    'loyalty_credit_ledger', v_txn,
+    jsonb_build_object('loyaltyCredits', v_before),
+    jsonb_build_object('loyaltyCredits', v_after, 'direction', v_direction, 'amount', p_amount),
+    v_reason, v_member.is_test);
+
+  return jsonb_build_object(
+    'status','ADJUSTED',
+    'transactionId', v_txn,
+    'memberId', p_member,
+    'memberCode', v_member.member_code,
+    'memberName', v_member.full_name,
+    'direction', v_direction,
+    'amount', p_amount,
+    'balanceBefore', v_before,
+    'balanceAfter', v_after,
+    'reasonText', case when v_direction = 'CREDIT'
+      then 'Added ' || p_amount || ' loyalty credits. Balance is now ' || v_after || '.'
+      else 'Deducted ' || p_amount || ' loyalty credits. Balance is now ' || v_after || '.' end);
+end $$;
+
+-- The balance rule, in one place, so the check and the display cannot drift.
+create or replace function public.kmd_loyalty_credit_balance(p_member uuid)
+returns numeric
+language sql stable security definer set search_path = public as $$
+  select coalesce(sum(case when direction = 'CREDIT' then credit_amount else -credit_amount end), 0)::numeric(14,2)
+  from public.loyalty_credit_ledger
+  where beneficiary_id = p_member and status = 'posted';
+$$;
+
+revoke all on function public.kmd_adjust_loyalty_credits(uuid,numeric,text,text,uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_loyalty_credit_balance(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_adjust_loyalty_credits(uuid,numeric,text,text,uuid,text) to service_role;
+grant execute on function public.kmd_loyalty_credit_balance(uuid) to service_role;

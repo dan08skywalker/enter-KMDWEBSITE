@@ -3599,6 +3599,8 @@ export type Database = {
       }
       loyalty_credit_ledger: {
         Row: {
+          balance_after: number | null
+          balance_before: number | null
           beneficiary_id: string
           beneficiary_member_code: string
           buyer_member_code: string | null
@@ -3623,6 +3625,8 @@ export type Database = {
           trigger_event: string | null
         }
         Insert: {
+          balance_after?: number | null
+          balance_before?: number | null
           beneficiary_id: string
           beneficiary_member_code: string
           buyer_member_code?: string | null
@@ -3647,6 +3651,8 @@ export type Database = {
           trigger_event?: string | null
         }
         Update: {
+          balance_after?: number | null
+          balance_before?: number | null
           beneficiary_id?: string
           beneficiary_member_code?: string
           buyer_member_code?: string | null
@@ -4994,6 +5000,17 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_adjust_loyalty_credits: {
+        Args: {
+          p_actor: string
+          p_amount: number
+          p_direction: string
+          p_idempotency_key?: string
+          p_member: string
+          p_reason: string
+        }
+        Returns: Json
+      }
       kmd_adjust_points: {
         Args: {
           p_actor: string
@@ -5202,6 +5219,10 @@ export type Database = {
       kmd_is_super_admin: {
         Args: { p_user_id: string }
         Returns: boolean
+      }
+      kmd_loyalty_credit_balance: {
+        Args: { p_member: string }
+        Returns: number
       }
       kmd_member_balances: {
         Args: { p_member: string }

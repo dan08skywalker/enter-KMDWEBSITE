@@ -191,6 +191,10 @@ export interface LoyaltyLedgerRow {
   status: LedgerStatus;
   trigger_event: string | null;
   created_at: string;
+  note: string | null;
+  /** Set only on administrator adjustments, where a before/after balance is meaningful. */
+  balance_before: number | null;
+  balance_after: number | null;
   is_test: boolean;
 }
 
