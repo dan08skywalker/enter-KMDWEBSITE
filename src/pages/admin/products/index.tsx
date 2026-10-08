@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Loader2, Pencil, Plus, ShoppingBag } from "lucide-react";
+import { Eye, EyeOff, Loader2, Pencil, Plus, ShoppingBag } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeFunction } from "@/lib/kmd/invoke";
@@ -8,6 +8,7 @@ import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { ExportButton } from "@/components/kmd/export-button";
+import { ConfirmActionDialog } from "@/components/kmd/confirm-action-dialog";
 import { FilterBar, SearchInput } from "@/components/kmd/filter-bar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -210,6 +211,28 @@ export default function AdminProducts() {
     void load();
   };
 
+  const setVisibility = async (product: CatalogueProduct, isActive: boolean, reason?: string) => {
+    const outcome = await invokeFunction<{ reasonText?: string }>("admin-actions", {
+      action: "set_product_visibility",
+      productId: product.id,
+      isActive,
+      reason,
+    });
+
+    if (!outcome.ok) {
+      const message = outcome.error ?? "The visibility change could not be saved";
+      toast.error(message);
+      return { error: message };
+    }
+
+    toast.success(
+      outcome.data?.reasonText ??
+        `${product.name} is now ${isActive ? "visible in the shop" : "hidden from the shop"}`,
+    );
+    void load();
+    return {};
+  };
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     if (!needle) return products;
@@ -284,13 +307,13 @@ export default function AdminProducts() {
       ),
     },
     {
-      key: "state",
-      header: "State",
+      key: "visibility",
+      header: "Visibility",
       cell: (product) =>
         product.is_active ? (
-          <StatusBadge label="Active" tone="success" />
+          <StatusBadge label="Visible" tone="success" />
         ) : (
-          <StatusBadge label="Inactive" tone="neutral" />
+          <StatusBadge label="Hidden" tone="warning" />
         ),
     },
     {
@@ -298,11 +321,40 @@ export default function AdminProducts() {
       header: "",
       headerClassName: "text-right",
       cell: (product) => (
-        <div className="text-right">
+        <div className="flex flex-wrap justify-end gap-2">
           <Button type="button" variant="outline" size="sm" onClick={() => openEdit(product)}>
             <Pencil className="h-3.5 w-3.5" />
             Edit
           </Button>
+          {product.is_active ? (
+            <ConfirmActionDialog
+              trigger={
+                <Button type="button" variant="outline" size="sm">
+                  <EyeOff className="h-3.5 w-3.5" />
+                  Hide Product
+                </Button>
+              }
+              title={`Hide ${product.name}?`}
+              description="Customers immediately stop seeing it in the shop, search, categories and featured sections, and it can no longer be purchased — including through a direct product link or a cart that already holds it. Its details, images, price, stock count and previous orders are all kept, and you can show it again at any time."
+              confirmLabel="Hide Product"
+              reasonRequired
+              reasonLabel="Reason (recorded on the audit log)"
+              onConfirm={(reason) => setVisibility(product, false, reason)}
+            />
+          ) : (
+            <ConfirmActionDialog
+              trigger={
+                <Button type="button" variant="outline" size="sm">
+                  <Eye className="h-3.5 w-3.5" />
+                  Show Product
+                </Button>
+              }
+              title={`Show ${product.name}?`}
+              description="It returns to the shop and becomes purchasable again, using its existing stock and purchase rules. Stock quantity is not changed by this action."
+              confirmLabel="Show Product"
+              onConfirm={() => setVisibility(product, true)}
+            />
+          )}
         </div>
       ),
     },

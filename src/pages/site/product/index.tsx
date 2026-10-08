@@ -33,6 +33,7 @@ export default function ProductDetailPage() {
   const [product, setProduct] = useState<StoreProduct | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [hidden, setHidden] = useState(false);
   const [quantity, setQuantity] = useState(1);
   const [activeImage, setActiveImage] = useState<string | null>(null);
   const [zoom, setZoom] = useState(false);
@@ -50,6 +51,7 @@ export default function ProductDetailPage() {
       setActiveImage(fromCatalog.imageUrl);
       setLoading(false);
       setNotFound(false);
+      setHidden(false);
       return;
     }
     if (catalogLoading) return;
@@ -68,10 +70,14 @@ export default function ProductDetailPage() {
         return;
       }
 
-      const payload = (data ?? {}) as unknown as StoreProduct & { found?: boolean };
+      const payload = (data ?? {}) as unknown as StoreProduct & { found?: boolean; hidden?: boolean };
       if (payload.found === false || !payload.id) {
-        setNotFound(true);
+        // A product the shop has hidden is not the same as one that never existed,
+        // so the visitor gets an accurate message rather than a broken-link page.
+        if (payload.hidden === true) setHidden(true);
+        else setNotFound(true);
       } else {
+        setHidden(false);
         setProduct(payload);
         setActiveImage(payload.imageUrl);
       }
@@ -127,6 +133,28 @@ export default function ProductDetailPage() {
               <Skeleton className="h-24 w-full" />
               <Skeleton className="h-12 w-1/2" />
             </div>
+          </div>
+        </div>
+      </SiteShell>
+    );
+  }
+
+  if (hidden) {
+    return (
+      <SiteShell>
+        <div className="mx-auto w-full max-w-3xl px-4 py-20 text-center sm:px-6">
+          <h1 className="text-2xl font-bold">This product is currently unavailable</h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            It cannot be ordered at the moment. Browse the shop to see what is available today, or
+            contact us if you were expecting to buy it.
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-3">
+            <Button asChild variant="brand">
+              <Link to="/shop">Back to the shop</Link>
+            </Button>
+            <Button asChild variant="outline">
+              <Link to="/contact">Contact us</Link>
+            </Button>
           </div>
         </div>
       </SiteShell>

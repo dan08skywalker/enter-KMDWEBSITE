@@ -247,148 +247,154 @@ export default function HomePage() {
       </Section>
 
       {/* ---------------- Dokudami spotlight ---------------- */}
-      <Section tone="muted">
-        <div className="grid items-center gap-8 lg:grid-cols-2">
-          <div className="overflow-hidden rounded-2xl border bg-card">
-            <img
-              src={dokudami?.imageUrl ?? "/products/dokudami.png"}
-              alt="Dokudami Capsules"
-              crossOrigin="anonymous"
-              className="h-full w-full object-cover"
-            />
-          </div>
+      {/* A hidden product leaves the catalogue, so its spotlight goes with it. */}
+      {dokudami ? (
+        <Section tone="muted">
+          <div className="grid items-center gap-8 lg:grid-cols-2">
+            <div className="overflow-hidden rounded-2xl border bg-card">
+              <img
+                src={dokudami?.imageUrl ?? "/products/dokudami.png"}
+                alt="Dokudami Capsules"
+                crossOrigin="anonymous"
+                className="h-full w-full object-cover"
+              />
+            </div>
 
-          <div>
-            <p className="kmd-eyebrow text-accent">EGC Dokudami Capsules</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight">
-              Discover the natural power of Dokudami
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              {dokudami?.description ??
-                "Everyday wellness support in capsule form, made with Houttuynia cordata (dokudami)."}
-            </p>
-
-            <ul className="mt-5 space-y-2">
-              {DOKUDAMI_FEATURES.map((feature) => (
-                <li key={feature} className="flex items-start gap-2 text-xs text-foreground/85">
-                  <Droplets className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                  {feature}
-                </li>
-              ))}
-            </ul>
-
-            {dokudami ? (
-              <div className="mt-6">
-                <PriceTag
-                  regularPrice={dokudami.regularPrice}
-                  promoPrice={dokudami.promoPrice}
-                  effectivePrice={dokudami.effectivePrice}
-                  size="lg"
-                />
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <StockBadge
-                    inStock={dokudami.inStock}
-                    lowStock={dokudami.lowStock}
-                    availableQuantity={dokudami.availableQuantity}
-                  />
-                  <Button asChild variant="brand">
-                    <Link to={dokudami.slug ? `/shop/${dokudami.slug}` : "/shop"}>
-                      Shop this product
-                    </Link>
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            <div className="mt-6 rounded-xl border border-primary/20 bg-secondary/60 p-4">
-              <p className="flex items-center gap-2 text-xs font-semibold">
-                <BookOpen className="h-3.5 w-3.5 text-primary" />
-                Read the science for yourself
+            <div>
+              <p className="kmd-eyebrow text-accent">EGC Dokudami Capsules</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight">
+                Discover the natural power of Dokudami
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                {dokudami?.description ??
+                  "Everyday wellness support in capsule form, made with Houttuynia cordata (dokudami)."}
               </p>
-              <a
-                href={DOKUDAMI_REVIEW_URL}
-                target="_blank"
-                rel="noreferrer noopener"
-                className="mt-2 block text-xs text-accent underline underline-offset-2"
-              >
-                Pharmacological Effects of Houttuynia cordata: A Comprehensive Review
-              </a>
-              <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                This publication summarises existing scientific research on Houttuynia cordata and its
-                naturally occurring compounds. It is educational reading and is not evidence that any
-                supplement can diagnose, treat, cure or prevent a disease.
+
+              <ul className="mt-5 space-y-2">
+                {DOKUDAMI_FEATURES.map((feature) => (
+                  <li key={feature} className="flex items-start gap-2 text-xs text-foreground/85">
+                    <Droplets className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    {feature}
+                  </li>
+                ))}
+              </ul>
+
+              {dokudami ? (
+                <div className="mt-6">
+                  <PriceTag
+                    regularPrice={dokudami.regularPrice}
+                    promoPrice={dokudami.promoPrice}
+                    effectivePrice={dokudami.effectivePrice}
+                    size="lg"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <StockBadge
+                      inStock={dokudami.inStock}
+                      lowStock={dokudami.lowStock}
+                      availableQuantity={dokudami.availableQuantity}
+                    />
+                    <Button asChild variant="brand">
+                      <Link to={dokudami.slug ? `/shop/${dokudami.slug}` : "/shop"}>
+                        Shop this product
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-6 rounded-xl border border-primary/20 bg-secondary/60 p-4">
+                <p className="flex items-center gap-2 text-xs font-semibold">
+                  <BookOpen className="h-3.5 w-3.5 text-primary" />
+                  Read the science for yourself
+                </p>
+                <a
+                  href={DOKUDAMI_REVIEW_URL}
+                  target="_blank"
+                  rel="noreferrer noopener"
+                  className="mt-2 block text-xs text-accent underline underline-offset-2"
+                >
+                  Pharmacological Effects of Houttuynia cordata: A Comprehensive Review
+                </a>
+                <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+                  This publication summarises existing scientific research on Houttuynia cordata and its
+                  naturally occurring compounds. It is educational reading and is not evidence that any
+                  supplement can diagnose, treat, cure or prevent a disease.
+                </p>
+              </div>
+
+              <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
+                {dokudami?.disclaimer ??
+                  "This product is a food supplement and is not intended to diagnose, treat, cure or prevent any disease."}
+              </p>
+            </div>
+          </div>
+        </Section>
+      ) : null}
+
+      {/* ---------------- PowerPill spotlight ---------------- */}
+      {/* A hidden product leaves the catalogue, so its spotlight goes with it. */}
+      {powerpill ? (
+        <Section>
+          <div className="grid items-center gap-8 lg:grid-cols-2">
+            <div>
+              <p className="kmd-eyebrow text-accent">PowerPill Plus</p>
+              <h2 className="mt-2 text-2xl font-bold tracking-tight">
+                Drive smarter. Drive farther. Save more.
+              </h2>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                Advanced fuel conditioning technology designed for gasoline and diesel engines,
+                available for full-size fuel tanks and for motorcycles and small engines.
+              </p>
+
+              <ul className="mt-5 grid gap-2 sm:grid-cols-2">
+                {POWERPILL_BENEFITS.map((benefit) => (
+                  <li key={benefit} className="flex items-start gap-2 text-xs text-foreground/85">
+                    <Flame className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
+                    {benefit}
+                  </li>
+                ))}
+              </ul>
+
+              {powerpill ? (
+                <div className="mt-6">
+                  <PriceTag
+                    regularPrice={powerpill.regularPrice}
+                    promoPrice={powerpill.promoPrice}
+                    effectivePrice={powerpill.effectivePrice}
+                    size="lg"
+                  />
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
+                    <StockBadge
+                      inStock={powerpill.inStock}
+                      lowStock={powerpill.lowStock}
+                      availableQuantity={powerpill.availableQuantity}
+                    />
+                    <Button asChild variant="brand">
+                      <Link to={powerpill.slug ? `/shop/${powerpill.slug}` : "/shop"}>
+                        Shop PowerPill Plus
+                      </Link>
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+
+              <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
+                {powerpill?.disclaimer ??
+                  "Performance results may vary depending on engine condition, fuel quality and operating conditions."}
               </p>
             </div>
 
-            <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
-              {dokudami?.disclaimer ??
-                "This product is a food supplement and is not intended to diagnose, treat, cure or prevent any disease."}
-            </p>
+            <div className="overflow-hidden rounded-2xl border bg-card">
+              <img
+                src="/products/powerpill.jpeg"
+                alt="PowerPill Plus real benefits, real impact"
+                crossOrigin="anonymous"
+                className="h-full w-full object-cover"
+              />
+            </div>
           </div>
-        </div>
-      </Section>
-
-      {/* ---------------- PowerPill spotlight ---------------- */}
-      <Section>
-        <div className="grid items-center gap-8 lg:grid-cols-2">
-          <div>
-            <p className="kmd-eyebrow text-accent">PowerPill Plus</p>
-            <h2 className="mt-2 text-2xl font-bold tracking-tight">
-              Drive smarter. Drive farther. Save more.
-            </h2>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              Advanced fuel conditioning technology designed for gasoline and diesel engines,
-              available for full-size fuel tanks and for motorcycles and small engines.
-            </p>
-
-            <ul className="mt-5 grid gap-2 sm:grid-cols-2">
-              {POWERPILL_BENEFITS.map((benefit) => (
-                <li key={benefit} className="flex items-start gap-2 text-xs text-foreground/85">
-                  <Flame className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
-                  {benefit}
-                </li>
-              ))}
-            </ul>
-
-            {powerpill ? (
-              <div className="mt-6">
-                <PriceTag
-                  regularPrice={powerpill.regularPrice}
-                  promoPrice={powerpill.promoPrice}
-                  effectivePrice={powerpill.effectivePrice}
-                  size="lg"
-                />
-                <div className="mt-3 flex flex-wrap items-center gap-3">
-                  <StockBadge
-                    inStock={powerpill.inStock}
-                    lowStock={powerpill.lowStock}
-                    availableQuantity={powerpill.availableQuantity}
-                  />
-                  <Button asChild variant="brand">
-                    <Link to={powerpill.slug ? `/shop/${powerpill.slug}` : "/shop"}>
-                      Shop PowerPill Plus
-                    </Link>
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-
-            <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
-              {powerpill?.disclaimer ??
-                "Performance results may vary depending on engine condition, fuel quality and operating conditions."}
-            </p>
-          </div>
-
-          <div className="overflow-hidden rounded-2xl border bg-card">
-            <img
-              src="/products/powerpill.jpeg"
-              alt="PowerPill Plus real benefits, real impact"
-              crossOrigin="anonymous"
-              className="h-full w-full object-cover"
-            />
-          </div>
-        </div>
-      </Section>
+        </Section>
+      ) : null}
 
       {/* ---------------- LED bulb / closet / digital ---------------- */}
       <Section tone="muted" title="Also in the shop">
@@ -397,7 +403,10 @@ export default function HomePage() {
             { product: ledBulb, features: LED_BULB_FEATURES, icon: Lightbulb, fallbackImage: "/products/led-bulb.png" },
             { product: closet, features: CLOSET_FEATURES, icon: Shirt, fallbackImage: "/products/kmd-closet.jpeg" },
             { product: digital, features: DIGITAL_SERVICES, icon: MonitorSmartphone, fallbackImage: "/products/digital-services.png" },
-          ].map((entry, index) => {
+          ]
+            // A hidden product never reaches the catalogue, so its card is dropped.
+            .filter((entry) => entry.product !== null)
+            .map((entry, index) => {
             const Icon = entry.icon;
             const title = entry.product?.name ?? ["Intelligent Emergency LED Bulb", "KMD Closet Apparel", "Website & Landing Page Service"][index];
             return (

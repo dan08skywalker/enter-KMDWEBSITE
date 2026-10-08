@@ -1,0 +1,112 @@
+-- ============================================================
+-- KMD EMPIRE · migration 11 · product visibility
+--
+-- Visibility already lives on products.is_active and is already enforced in
+-- every storefront read path (catalogue, direct link, checkout quote, order
+-- placement) and by RLS. Two things are missing:
+--
+--   1. The storefront cannot tell a HIDDEN product from a MISSING one, so a
+--      direct link to a hidden product shows a generic not-found page instead
+--      of "currently unavailable". That distinction is added below.
+--   2. An audited, admin-only way to flip visibility on its own.
+--
+-- Visibility is deliberately independent of stock: nothing here reads or writes
+-- inventory, so hiding or showing a product never changes its quantity.
+-- ============================================================
+
+create or replace function public.kmd_storefront_product(p_slug text)
+RETURNS jsonb
+LANGUAGE sql
+STABLE SECURITY DEFINER
+SET search_path TO 'public'
+AS $function$
+  select coalesce(
+    (select jsonb_build_object(
+      'id', p.id, 'slug', p.slug, 'sku', p.sku, 'name', p.name, 'brand', p.brand,
+      'category', p.category, 'productType', p.product_type, 'eyebrow', p.short_description,
+      'description', p.description, 'disclaimer', p.disclaimer,
+      'imageUrl', p.image_url, 'gallery', p.gallery,
+      'regularPrice', p.regular_price, 'promoPrice', p.promo_price,
+      'effectivePrice', p.selling_price, 'isDigital', p.is_digital,
+      'availableQuantity', case
+        when p.is_digital or coalesce(i.is_unlimited,false) then null
+        when i.product_id is null then 0
+        else greatest(i.quantity_on_hand - i.reserved_quantity, 0) end,
+      'inStock', case
+        when p.is_digital or coalesce(i.is_unlimited,false) then true
+        else coalesce(i.quantity_on_hand - i.reserved_quantity, 0) > 0 end,
+      'lowStock', case
+        when p.is_digital or coalesce(i.is_unlimited,false) then false
+        else coalesce(i.quantity_on_hand - i.reserved_quantity, 0) > 0
+             and coalesce(i.quantity_on_hand - i.reserved_quantity, 0) <= coalesce(i.low_stock_threshold, 5) end,
+      'etaDays', case when p.is_digital then 'Delivered digitally after payment verification'
+                      else 'Dispatched after payment verification' end
+    ) from public.products p
+    left join public.inventory i on i.product_id = p.id
+    where p.is_active and p.slug = p_slug
+    limit 1),
+    -- The slug exists but the product is hidden: the storefront can show
+    -- "currently unavailable" instead of pretending the product never existed.
+    (select jsonb_build_object('found', false, 'hidden', true, 'name', p.name)
+     from public.products p
+     where not p.is_active and p.slug = p_slug
+     limit 1),
+    jsonb_build_object('found', false, 'hidden', false));
+$function$;
+
+-- ---------- audited, admin-only visibility change ----------
+create or replace function public.kmd_set_product_visibility(
+  p_product_id uuid,
+  p_is_active boolean,
+  p_actor uuid,
+  p_reason text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.products%rowtype;
+  v_after public.products%rowtype;
+begin
+  select * into v_before from public.products where id = p_product_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND',
+      'reasonText','Product not found');
+  end if;
+
+  if p_is_active is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION',
+      'reasonText','A visibility value is required');
+  end if;
+
+  if v_before.is_active = p_is_active then
+    return jsonb_build_object('status','UNCHANGED',
+      'sku', v_before.sku, 'name', v_before.name, 'isActive', v_before.is_active,
+      'reasonText', v_before.name || ' is already '
+        || case when p_is_active then 'visible in the shop.' else 'hidden from the shop.' end);
+  end if;
+
+  -- Only the visibility flag changes. Inventory, pricing, images, reward
+  -- configuration and every previous order are untouched.
+  update public.products
+    set is_active = p_is_active
+    where id = p_product_id
+    returning * into v_after;
+
+  perform public.kmd_audit(p_actor, 'PRODUCT_VISIBILITY_CHANGE', null, null, 'products', p_product_id::text,
+    jsonb_build_object('sku', v_before.sku, 'name', v_before.name, 'isActive', v_before.is_active),
+    jsonb_build_object('sku', v_after.sku, 'name', v_after.name, 'isActive', v_after.is_active),
+    coalesce(p_reason,
+      case when p_is_active then 'Product made visible in the shop' else 'Product hidden from the shop' end),
+    false);
+
+  return jsonb_build_object('status','UPDATED',
+    'productId', p_product_id,
+    'sku', v_after.sku,
+    'name', v_after.name,
+    'isActive', v_after.is_active,
+    'reasonText', v_after.name || case when p_is_active
+      then ' is now visible in the shop.'
+      else ' is now hidden from the shop.' end);
+end $$;
+
+revoke all on function public.kmd_set_product_visibility(uuid,boolean,uuid,text) from public, anon, authenticated;
+grant execute on function public.kmd_set_product_visibility(uuid,boolean,uuid,text) to service_role;

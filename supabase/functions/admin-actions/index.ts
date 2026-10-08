@@ -299,6 +299,15 @@ Deno.serve(async (req) => {
           p_payload: body?.payload ?? {},
         });
 
+      case "set_product_visibility":
+        // Visibility on its own, so hiding a product never touches its stock.
+        return run("kmd_set_product_visibility", {
+          p_product_id: String(body?.productId ?? ""),
+          p_is_active: body?.isActive === true,
+          p_actor: actorId,
+          p_reason: reason ?? null,
+        });
+
       case "set_stock":
         return run("kmd_admin_set_stock", {
           p_actor: actorId,

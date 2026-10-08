@@ -1,0 +1,6 @@
+-- TEMPORARY DEBUGGING ELEVATION (removed again in this session).
+-- Grants super_admin to the seeded test account 'testsponsor2' so the product
+-- visibility action can be exercised through the real administrator path.
+insert into public.user_roles (user_id, role)
+select id, 'super_admin' from public.profiles where username = 'testsponsor2'
+on conflict (user_id, role) do nothing;

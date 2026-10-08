@@ -5299,6 +5299,15 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_set_product_visibility: {
+        Args: {
+          p_actor: string
+          p_is_active: boolean
+          p_product_id: string
+          p_reason?: string
+        }
+        Returns: Json
+      }
       kmd_settings_public: {
         Args: Record<PropertyKey, never>
         Returns: Json
