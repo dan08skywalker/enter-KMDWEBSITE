@@ -1,0 +1,60 @@
+-- ============================================================
+-- KMD EMPIRE · migration 14 · team visibility rules
+--
+--   Upline    : a member may see their DIRECT sponsor only (level 1).
+--   Downline  : a member may see their own downline through level 5.
+--
+-- The closure table only ever stores levels 1-5, so deeper downlines were never
+-- reachable. The real gap was the upline direction, which exposed the whole
+-- sponsor chain. Enforcing it here means lists, counts, filters and any future
+-- query inherit the rule, instead of each page filtering for itself.
+--
+-- Admin access is untouched: the kmd_is_admin policies are not modified.
+-- No relationship, balance or ledger row is written by this migration.
+-- ============================================================
+
+-- ---------- the visibility rule, in one place ----------
+create or replace function public.kmd_can_view_member(p_viewer uuid, p_member uuid)
+returns boolean
+language sql stable security definer set search_path = public as $$
+  select p_viewer is not null and (
+    -- my own downline, five levels deep
+    exists (
+      select 1 from public.sponsor_relationships sr
+      where sr.ancestor_id = p_viewer
+        and sr.descendant_id = p_member
+        and sr.level between 1 and 5
+    )
+    or
+    -- my direct sponsor, and nobody above them
+    exists (
+      select 1 from public.sponsor_relationships sr
+      where sr.descendant_id = p_viewer
+        and sr.ancestor_id = p_member
+        and sr.level = 1
+    )
+  );
+$$;
+
+-- Keep the existing name working so no policy or function has to change caller.
+create or replace function public.kmd_is_related(p_viewer uuid, p_member uuid)
+returns boolean
+language sql stable security definer set search_path = public as $$
+  select public.kmd_can_view_member(p_viewer, p_member);
+$$;
+
+-- ---------- profiles ----------
+alter policy profiles_select_related on public.profiles
+  using (public.kmd_can_view_member(auth.uid(), id));
+
+-- ---------- sponsor relationships ----------
+-- A member's own rows: downline rows at levels 1-5, and only the level 1 row in
+-- the upline direction. Levels 2-5 upward are no longer selectable at all.
+alter policy sponsor_rel_select_own on public.sponsor_relationships
+  using (
+    (ancestor_id = auth.uid() and level between 1 and 5)
+    or (descendant_id = auth.uid() and level = 1)
+  );
+
+grant execute on function public.kmd_can_view_member(uuid,uuid) to authenticated;
+grant execute on function public.kmd_is_related(uuid,uuid) to authenticated;

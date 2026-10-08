@@ -51,7 +51,9 @@ export default function MemberTeam() {
         .from("sponsor_relationships")
         .select("level, ancestor_id, profiles:ancestor_id(id, first_name, last_name, member_code, account_status, profile_photo_url, activation_date, package_id)")
         .eq("descendant_id", user.id)
-        .order("level", { ascending: false }),
+        // Visibility rule: the direct sponsor is shown, and nothing above them.
+        .eq("level", 1)
+        .limit(1),
     ]);
 
     if (downlineRows.error) console.error("Could not load the team:", downlineRows.error.message);
@@ -181,9 +183,9 @@ export default function MemberTeam() {
 
       <section className="kmd-panel">
         <div className="border-b px-5 py-4">
-          <h2 className="text-sm font-semibold">My sponsor chain (upline)</h2>
+          <h2 className="text-sm font-semibold">My direct sponsor</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            These are the members who earn from your qualified purchases, Level 1 upward.
+            Your immediate sponsor, directly above you. Higher uplines are not shown.
           </p>
         </div>
         {loading ? (

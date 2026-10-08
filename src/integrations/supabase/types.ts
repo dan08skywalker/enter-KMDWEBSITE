@@ -5121,6 +5121,10 @@ export type Database = {
         }
         Returns: string
       }
+      kmd_can_view_member: {
+        Args: { p_member: string; p_viewer: string }
+        Returns: boolean
+      }
       kmd_change_sponsor: {
         Args: {
           p_actor: string
