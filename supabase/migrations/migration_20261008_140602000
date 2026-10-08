@@ -1,0 +1,8 @@
+-- Removes ONLY the temporary 'admin' role row granted to testsponsor1 earlier in this
+-- same turn for refund verification. Restores the prior authorization state; no other
+-- role rows, members or business data are touched.
+delete from public.user_roles
+ where role = 'admin'
+   and user_id = (select id from public.profiles where username = 'testsponsor1');
+
+select ur.role, count(*) as rows from public.user_roles ur group by ur.role order by ur.role;

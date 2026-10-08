@@ -1,0 +1,69 @@
+-- A retried submission carries the same key. It must return the original receipt
+-- WITHOUT placing anything: checking the key only after the order was created left
+-- a second, unpaid order behind.
+create or replace function public.kmd_checkout_place_wallet_order(
+  p_payload jsonb,
+  p_actor uuid,
+  p_idempotency_key text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_payload jsonb := coalesce(p_payload, '{}'::jsonb);
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_existing public.wallet_payments%rowtype;
+  v_token uuid;
+  v_placed jsonb;
+  v_paid jsonb;
+begin
+  -- The payer is the signed-in caller; a client-supplied id cannot name someone else.
+  if auth.uid() is null or p_actor is null or auth.uid() is distinct from p_actor then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Sign in to pay with your Shopping Wallet.');
+  end if;
+
+  -- The key is checked before anything is written, so a double click or a resend
+  -- cannot place a second order.
+  if v_key is not null then
+    select * into v_existing from public.wallet_payments where idempotency_key = v_key;
+    if found then
+      select o.access_token into v_token from public.orders o where o.id = v_existing.order_id;
+      return jsonb_build_object(
+        'status','DUPLICATE','reason','DUPLICATE_SUBMISSION',
+        'orderId', v_existing.order_id,
+        'orderNumber', v_existing.order_number,
+        'accessToken', v_token,
+        'paymentMethod', 'shopping_wallet',
+        'reference', v_existing.reference,
+        'amount', v_existing.amount,
+        'walletBalance', v_existing.wallet_balance_after,
+        'reasonText', 'This payment was already processed, so nothing was charged again. Order '
+          || v_existing.order_number || ' is already paid (reference ' || v_existing.reference || ').');
+    end if;
+  end if;
+
+  v_payload := jsonb_set(v_payload, '{paymentMethod}', '"shopping_wallet"'::jsonb, true);
+
+  v_placed := public.kmd_checkout_place_order(v_payload);
+  if coalesce(v_placed->>'status', 'FAILED') <> 'CREATED' then
+    return v_placed;
+  end if;
+
+  v_paid := public.kmd_wallet_pay_order((v_placed->>'orderId')::uuid, p_actor, v_key);
+
+  if coalesce(v_paid->>'status', 'FAILED') not in ('PAID','DUPLICATE') then
+    raise exception '%: %', coalesce(v_paid->>'reason','WALLET_PAYMENT_FAILED'),
+      coalesce(v_paid->>'reasonText','The Shopping Wallet payment could not be completed.');
+  end if;
+
+  return v_placed || v_paid;
+end $$;
+
+revoke all on function public.kmd_checkout_place_wallet_order(jsonb,uuid,text) from public, anon;
+grant execute on function public.kmd_checkout_place_wallet_order(jsonb,uuid,text) to authenticated;
+
+-- Repair the stray order the previous behaviour left behind: it was never paid, so
+-- it is cancelled and its reserved stock is returned to the shelf.
+select public.kmd_set_order_status(
+  'c5488a8b-bb55-4efd-af4e-ac5f81dcc31e'::uuid, 'cancelled',
+  (select id from public.profiles where username = 'testsponsor1'),
+  'Stray order from a duplicate-submission test - cancelled, no payment taken');

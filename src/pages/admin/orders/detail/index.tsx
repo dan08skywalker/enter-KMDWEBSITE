@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Activity, BadgeCheck, Loader2, RefreshCw, Truck, Undo2, XCircle } from "lucide-react";
+import { Activity, BadgeCheck, Loader2, RefreshCw, Truck, Undo2, Wallet, XCircle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeFunction } from "@/lib/kmd/invoke";
@@ -26,7 +26,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatDate, formatDateTime, formatPeso, formatPoints } from "@/lib/kmd/format";
-import { ledgerStatus, orderStatus, paymentMethod, transactionType } from "@/lib/kmd/labels";
+import { ledgerStatus, orderStatus, paymentMethod, transactionType, walletPaymentStatus } from "@/lib/kmd/labels";
 import type {
   EngineRunResult,
   LoyaltyLedgerRow,
@@ -35,6 +35,7 @@ import type {
   PaymentProof,
   PointLedgerRow,
   Profile,
+  WalletPayment,
 } from "@/lib/kmd/types";
 
 export default function AdminOrderDetail() {
@@ -45,6 +46,7 @@ export default function AdminOrderDetail() {
   const [order, setOrder] = useState<Order | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [proofs, setProofs] = useState<PaymentProof[]>([]);
+  const [walletPayment, setWalletPayment] = useState<WalletPayment | null>(null);
   const [ledgerRows, setLedgerRows] = useState<PointLedgerRow[]>([]);
   const [loyaltyRows, setLoyaltyRows] = useState<LoyaltyLedgerRow[]>([]);
   const [buyer, setBuyer] = useState<Profile | null>(null);
@@ -59,15 +61,18 @@ export default function AdminOrderDetail() {
     if (!orderId) return;
     setLoading(true);
 
-    const [orderResult, itemResult, proofResult, ledgerResult, loyaltyResult] = await Promise.all([
-      supabase.from("orders").select("*").eq("id", orderId).maybeSingle(),
-      supabase.from("order_items").select("*").eq("order_id", orderId),
-      supabase.from("payment_proofs").select("*").eq("order_id", orderId).order("submitted_at", { ascending: false }),
-      supabase.from("point_ledger").select("*").eq("order_id", orderId).order("unilevel_level", { ascending: true }),
-      supabase.from("loyalty_credit_ledger").select("*").eq("order_id", orderId),
-    ]);
+    const [orderResult, itemResult, proofResult, ledgerResult, loyaltyResult, walletResult] =
+      await Promise.all([
+        supabase.from("orders").select("*").eq("id", orderId).maybeSingle(),
+        supabase.from("order_items").select("*").eq("order_id", orderId),
+        supabase.from("payment_proofs").select("*").eq("order_id", orderId).order("submitted_at", { ascending: false }),
+        supabase.from("point_ledger").select("*").eq("order_id", orderId).order("unilevel_level", { ascending: true }),
+        supabase.from("loyalty_credit_ledger").select("*").eq("order_id", orderId),
+        supabase.from("wallet_payments").select("*").eq("order_id", orderId).maybeSingle(),
+      ]);
 
     if (orderResult.error) console.error("Could not load the order:", orderResult.error.message);
+    if (walletResult.error) console.error("Could not load the wallet payment:", walletResult.error.message);
 
     const found = (orderResult.data as unknown as Order | null) ?? null;
     setOrder(found);
@@ -75,6 +80,7 @@ export default function AdminOrderDetail() {
     setProofs((proofResult.data ?? []) as unknown as PaymentProof[]);
     setLedgerRows((ledgerResult.data ?? []) as unknown as PointLedgerRow[]);
     setLoyaltyRows((loyaltyResult.data ?? []) as unknown as LoyaltyLedgerRow[]);
+    setWalletPayment((walletResult.data as unknown as WalletPayment | null) ?? null);
 
     if (found) {
       const { data: buyerRow, error: buyerError } = await supabase
@@ -423,6 +429,68 @@ export default function AdminOrderDetail() {
       </div>
 
       <div className="grid gap-6 xl:grid-cols-2">
+        {walletPayment ? (
+          <div className="kmd-panel p-5 xl:col-span-2">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-semibold">Shopping Wallet payment</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This order was settled from the member's Shopping Wallet in one transaction, so
+                  there is no proof to verify. Refunds are issued from Wallet Payments.
+                </p>
+              </div>
+              <Button asChild variant="outline" size="sm">
+                <Link to="/admin/wallet-payments">
+                  <Wallet className="h-3.5 w-3.5" />
+                  Open Wallet Payments
+                </Link>
+              </Button>
+            </div>
+
+            <dl className="mt-4 grid gap-x-8 gap-y-3 text-xs sm:grid-cols-2 lg:grid-cols-3">
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Payment method</dt>
+                <dd className="font-semibold">Shopping Wallet</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Reference</dt>
+                <dd className="font-mono">{walletPayment.reference}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Date and time</dt>
+                <dd>{formatDateTime(walletPayment.created_at)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Amount deducted</dt>
+                <dd className="font-semibold tabular-nums">{formatPeso(walletPayment.amount)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Balance before</dt>
+                <dd className="tabular-nums">{formatPeso(walletPayment.wallet_balance_before)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Balance after</dt>
+                <dd className="font-semibold tabular-nums">
+                  {formatPeso(walletPayment.wallet_balance_after)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Refunded</dt>
+                <dd className="tabular-nums">{formatPeso(walletPayment.refunded_amount)}</dd>
+              </div>
+              <div className="flex justify-between gap-3">
+                <dt className="text-muted-foreground">Status</dt>
+                <dd>
+                  {(() => {
+                    const descriptor = walletPaymentStatus(walletPayment.status);
+                    return <StatusBadge label={descriptor.label} tone={descriptor.tone} />;
+                  })()}
+                </dd>
+              </div>
+            </dl>
+          </div>
+        ) : null}
+
         <div className="kmd-panel p-5">
           <h2 className="text-sm font-semibold">Payment proofs</h2>
           {proofs.length === 0 ? (

@@ -1,0 +1,266 @@
+-- ============================================================
+-- KMD EMPIRE · Shopping Wallet as a payment method (1/3)
+-- New records for wallet-paid orders, the refund record, and the atomic payment.
+-- ============================================================
+
+create sequence if not exists public.kmd_wallet_payment_seq start with 1 increment by 1;
+create sequence if not exists public.kmd_wallet_refund_seq start with 1 increment by 1;
+
+-- ---------- one row per order paid from the Shopping Wallet ----------
+create table if not exists public.wallet_payments (
+  id uuid primary key default gen_random_uuid(),
+  reference text not null unique,
+  member_id uuid not null references public.profiles(id),
+  member_code text not null,
+  order_id uuid not null references public.orders(id),
+  order_number text not null,
+  amount numeric(14,2) not null check (amount > 0),
+  wallet_balance_before numeric(14,2) not null,
+  wallet_balance_after numeric(14,2) not null,
+  status text not null default 'completed'
+    check (status in ('completed','partially_refunded','refunded')),
+  refunded_amount numeric(14,2) not null default 0 check (refunded_amount >= 0),
+  wallet_ledger_id uuid references public.shopping_wallet_ledger(id),
+  idempotency_key text unique,
+  processed_by uuid,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- One wallet charge per order: a second attempt can never take a second payment.
+create unique index if not exists wallet_payments_order_key on public.wallet_payments (order_id);
+create index if not exists wallet_payments_member_idx on public.wallet_payments (member_id, created_at desc);
+create index if not exists wallet_payments_created_idx on public.wallet_payments (created_at desc);
+
+-- ---------- money returned to the wallet ----------
+create table if not exists public.wallet_payment_refunds (
+  id uuid primary key default gen_random_uuid(),
+  reference text not null unique,
+  payment_id uuid not null references public.wallet_payments(id),
+  member_id uuid not null references public.profiles(id),
+  member_code text not null,
+  order_id uuid not null references public.orders(id),
+  order_number text not null,
+  amount numeric(14,2) not null check (amount > 0),
+  reason text,
+  wallet_balance_before numeric(14,2) not null,
+  wallet_balance_after numeric(14,2) not null,
+  wallet_ledger_id uuid references public.shopping_wallet_ledger(id),
+  idempotency_key text unique,
+  processed_by uuid,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists wallet_refunds_payment_idx on public.wallet_payment_refunds (payment_id);
+create index if not exists wallet_refunds_member_idx on public.wallet_payment_refunds (member_id, created_at desc);
+
+create trigger kmd_wallet_payments_touch before update on public.wallet_payments
+  for each row execute function public.kmd_touch_updated_at();
+
+-- ---------- row level security: own rows or administrator ----------
+alter table public.wallet_payments enable row level security;
+create policy wallet_payments_select_own on public.wallet_payments
+  for select to authenticated
+  using (member_id = auth.uid() or public.kmd_is_admin(auth.uid()));
+
+alter table public.wallet_payment_refunds enable row level security;
+create policy wallet_refunds_select_own on public.wallet_payment_refunds
+  for select to authenticated
+  using (member_id = auth.uid() or public.kmd_is_admin(auth.uid()));
+
+grant select on public.wallet_payments to authenticated;
+grant select on public.wallet_payment_refunds to authenticated;
+
+-- ============================================================
+-- The caller's own Shopping Wallet balance, derived from the ledger.
+-- The member id comes from the session, so one member can never read
+-- another member's balances through this function.
+-- ============================================================
+create or replace function public.kmd_my_wallet_balance()
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when auth.uid() is null then null
+              else public.kmd_member_balances(auth.uid()) end;
+$$;
+
+revoke all on function public.kmd_my_wallet_balance() from public, anon;
+grant execute on function public.kmd_my_wallet_balance() to authenticated;
+
+-- ============================================================
+-- Pay an order from the Shopping Wallet. One transaction: identity, ownership,
+-- final total, balance, the wallet debit and the order's paid state together.
+-- Nothing is deducted if any part of it fails, and a second attempt on the same
+-- order returns the original receipt instead of charging again.
+-- ============================================================
+create or replace function public.kmd_wallet_pay_order(
+  p_order_id uuid,
+  p_actor uuid,
+  p_idempotency_key text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_member public.profiles%rowtype;
+  v_balances jsonb;
+  v_available numeric(14,2);
+  v_total numeric(14,2);
+  v_after numeric(14,2);
+  v_shortfall numeric(14,2);
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_reference text;
+  v_txn text;
+  v_ledger uuid;
+  v_existing public.wallet_payments%rowtype;
+  v_confirm jsonb;
+begin
+  -- ---- identity: a signed-in member is required, and the wallet that pays is
+  --      always the payer's own
+  if p_actor is null then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Sign in to pay with your Shopping Wallet.');
+  end if;
+
+  -- Locking the order serialises two simultaneous payments for the same order.
+  select * into v_order from public.orders where id = p_order_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','ORDER_NOT_FOUND',
+      'reasonText','We could not find that order.');
+  end if;
+
+  -- Ownership of the order and of the paying wallet are the same fact here.
+  if v_order.buyer_profile_id is distinct from p_actor then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','This order belongs to another member.');
+  end if;
+
+  -- Already charged: hand back the original receipt, never a second charge.
+  select * into v_existing from public.wallet_payments where order_id = v_order.id;
+  if found then
+    return jsonb_build_object('status','DUPLICATE','reason','ORDER_ALREADY_PAID',
+      'reference', v_existing.reference,
+      'orderNumber', v_order.order_number,
+      'amount', v_existing.amount,
+      'walletBalance', v_existing.wallet_balance_after,
+      'reasonText','Order ' || v_order.order_number || ' was already paid from your Shopping Wallet (reference ' || v_existing.reference || '). Nothing was deducted again.');
+  end if;
+
+  if v_order.status in ('confirmed','cancelled','rejected') then
+    return jsonb_build_object('status','FAILED','reason','ORDER_NOT_PAYABLE',
+      'reasonText','This order is ' || replace(v_order.status, '_', ' ') || ' and cannot be paid again.');
+  end if;
+
+  -- A resend of the same submission carries the same key and is recognised here.
+  if v_key is not null then
+    select * into v_existing from public.wallet_payments where idempotency_key = v_key;
+    if found then
+      return jsonb_build_object('status','DUPLICATE','reason','DUPLICATE_SUBMISSION',
+        'reference', v_existing.reference,
+        'orderNumber', v_existing.order_number,
+        'amount', v_existing.amount,
+        'walletBalance', v_existing.wallet_balance_after,
+        'reasonText','This payment was already processed, so nothing was deducted again.');
+    end if;
+  end if;
+
+  -- ---- the amount is the order's own stored total, never a client figure
+  v_total := round(coalesce(v_order.total_amount, 0), 2);
+  if v_total <= 0 then
+    return jsonb_build_object('status','FAILED','reason','ORDER_TOTAL_NOT_FINAL',
+      'reasonText','This order has no payable total yet.');
+  end if;
+
+  -- A delivery fee that is still pending would leave part of the order unpaid,
+  -- so the wallet cannot settle it yet.
+  if not v_order.is_shipping_quoted then
+    return jsonb_build_object('status','FAILED','reason','SHIPPING_QUOTE_PENDING',
+      'reasonText','Your delivery fee has not been finalised yet, so the Shopping Wallet cannot cover the full order total. Please pay by transfer, or wait until the fee is confirmed.');
+  end if;
+
+  -- ---- lock the payer's own profile so two payments can never both read the
+  --      same balance and overdraw the wallet
+  select * into v_member from public.profiles where id = p_actor for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND',
+      'reasonText','Member record not found.');
+  end if;
+  if v_member.account_status in ('suspended','inactive') then
+    return jsonb_build_object('status','FAILED','reason','ACCOUNT_NOT_ACTIVE',
+      'reasonText','Your account is ' || v_member.account_status || ', so the Shopping Wallet cannot be used. Please contact an administrator.');
+  end if;
+
+  v_balances := public.kmd_member_balances(p_actor);
+  v_available := round(coalesce((v_balances->>'shoppingWallet')::numeric, 0), 2);
+
+  if v_available < v_total then
+    v_shortfall := round(v_total - v_available, 2);
+    return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_WALLET',
+      'reasonText','Your Shopping Wallet balance is short by ' || to_char(v_shortfall, 'FM999999999990.00') || '. Convert Unilevel Points to your Shopping Wallet, then pay again.',
+      'available', v_available, 'required', v_total, 'shortfall', v_shortfall);
+  end if;
+
+  v_after := round(v_available - v_total, 2);
+  v_reference := 'KMD-WPL-' || lpad(nextval('public.kmd_wallet_payment_seq')::text, 6, '0');
+
+  -- ---- the deduction itself, with its own immutable ledger entry
+  v_txn := 'KMD-WL-' || lpad(nextval('public.kmd_wallet_txn_seq')::text, 8, '0');
+  insert into public.shopping_wallet_ledger (
+    transaction_id, member_id, member_code, direction, amount, status, trigger_event,
+    posted_at, processed_by, idempotency_key, note, is_test
+  ) values (
+    v_txn, p_actor, v_member.member_code, 'DEBIT', v_total, 'posted', 'wallet_payment',
+    now(), p_actor,
+    case when v_key is null then null else v_key || ':payment' end,
+    'Paid order ' || v_order.order_number || ' from Shopping Wallet (' || v_reference || ')',
+    v_order.is_test
+  ) returning id into v_ledger;
+
+  update public.profiles set shopping_wallet_balance = v_after where id = p_actor;
+
+  insert into public.wallet_payments (
+    reference, member_id, member_code, order_id, order_number, amount,
+    wallet_balance_before, wallet_balance_after, status, wallet_ledger_id,
+    idempotency_key, processed_by, is_test
+  ) values (
+    v_reference, p_actor, v_member.member_code, v_order.id, v_order.order_number, v_total,
+    v_available, v_after, 'completed', v_ledger,
+    v_key, p_actor, v_order.is_test
+  );
+
+  update public.orders set payment_method = 'shopping_wallet' where id = v_order.id;
+
+  perform public.kmd_audit(p_actor, 'WALLET_PAYMENT', p_actor, v_order.id,
+    'wallet_payments', v_reference,
+    jsonb_build_object('walletBalance', v_available),
+    jsonb_build_object('walletBalance', v_after, 'amount', v_total,
+                       'orderNumber', v_order.order_number),
+    'Order ' || v_order.order_number || ' paid from Shopping Wallet (' || v_reference || ')',
+    v_order.is_test);
+
+  -- ---- the order becomes paid, and everything a verified payment triggers
+  --      (stock commit, membership activation, reward engine) runs in this
+  --      same transaction
+  v_confirm := public.kmd_confirm_payment(v_order.id, p_actor, 'payment_confirmed');
+
+  perform public.kmd_notify(p_actor, 'order.paid_by_wallet',
+    'Paid with Shopping Wallet: ' || v_order.order_number,
+    'We received ' || to_char(v_total, 'FM999999999990.00') || ' from your Shopping Wallet. Remaining balance: ' || to_char(v_after, 'FM999999999990.00') || ' (reference ' || v_reference || ').',
+    '/app/orders', jsonb_build_object('orderNumber', v_order.order_number,
+      'reference', v_reference, 'amount', v_total, 'walletBalance', v_after));
+
+  return jsonb_build_object(
+    'status','PAID',
+    'reference', v_reference,
+    'orderId', v_order.id,
+    'orderNumber', v_order.order_number,
+    'amount', v_total,
+    'paymentMethod', 'shopping_wallet',
+    'walletBalanceBefore', v_available,
+    'walletBalance', v_after,
+    'confirmation', v_confirm,
+    'reasonText', 'Paid from your Shopping Wallet. Reference ' || v_reference || '. Remaining balance: ' || to_char(v_after, 'FM999999999990.00') || '.');
+end $$;
+
+revoke all on function public.kmd_wallet_pay_order(uuid,uuid,text) from public, anon, authenticated;
+grant execute on function public.kmd_wallet_pay_order(uuid,uuid,text) to service_role;

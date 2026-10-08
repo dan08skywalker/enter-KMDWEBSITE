@@ -5073,6 +5073,167 @@ export type Database = {
           },
         ]
       }
+      wallet_payment_refunds: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          idempotency_key: string | null
+          is_test: boolean
+          member_code: string
+          member_id: string
+          order_id: string
+          order_number: string
+          payment_id: string
+          processed_by: string | null
+          reason: string | null
+          reference: string
+          wallet_balance_after: number
+          wallet_balance_before: number
+          wallet_ledger_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          idempotency_key?: string | null
+          is_test?: boolean
+          member_code: string
+          member_id: string
+          order_id: string
+          order_number: string
+          payment_id: string
+          processed_by?: string | null
+          reason?: string | null
+          reference: string
+          wallet_balance_after: number
+          wallet_balance_before: number
+          wallet_ledger_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          idempotency_key?: string | null
+          is_test?: boolean
+          member_code?: string
+          member_id?: string
+          order_id?: string
+          order_number?: string
+          payment_id?: string
+          processed_by?: string | null
+          reason?: string | null
+          reference?: string
+          wallet_balance_after?: number
+          wallet_balance_before?: number
+          wallet_ledger_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallet_payment_refunds_member_id_fkey"
+            columns: ["member_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_payment_refunds_order_id_fkey"
+            columns: ["order_id"]
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_payment_refunds_payment_id_fkey"
+            columns: ["payment_id"]
+            referencedRelation: "wallet_payments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_payment_refunds_wallet_ledger_id_fkey"
+            columns: ["wallet_ledger_id"]
+            referencedRelation: "shopping_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      wallet_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          idempotency_key: string | null
+          is_test: boolean
+          member_code: string
+          member_id: string
+          order_id: string
+          order_number: string
+          processed_by: string | null
+          reference: string
+          refunded_amount: number
+          status: string
+          updated_at: string
+          wallet_balance_after: number
+          wallet_balance_before: number
+          wallet_ledger_id: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          idempotency_key?: string | null
+          is_test?: boolean
+          member_code: string
+          member_id: string
+          order_id: string
+          order_number: string
+          processed_by?: string | null
+          reference: string
+          refunded_amount?: number
+          status?: string
+          updated_at?: string
+          wallet_balance_after: number
+          wallet_balance_before: number
+          wallet_ledger_id?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          idempotency_key?: string | null
+          is_test?: boolean
+          member_code?: string
+          member_id?: string
+          order_id?: string
+          order_number?: string
+          processed_by?: string | null
+          reference?: string
+          refunded_amount?: number
+          status?: string
+          updated_at?: string
+          wallet_balance_after?: number
+          wallet_balance_before?: number
+          wallet_ledger_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallet_payments_member_id_fkey"
+            columns: ["member_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_payments_order_id_fkey"
+            columns: ["order_id"]
+            referencedRelation: "orders"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_payments_wallet_ledger_id_fkey"
+            columns: ["wallet_ledger_id"]
+            referencedRelation: "shopping_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -5229,6 +5390,10 @@ export type Database = {
         Args: { p_payload: Json }
         Returns: Json
       }
+      kmd_checkout_place_wallet_order: {
+        Args: { p_actor: string; p_idempotency_key?: string; p_payload: Json }
+        Returns: Json
+      }
       kmd_checkout_quote: {
         Args: { p_items: Json; p_zone_id?: string }
         Returns: Json
@@ -5333,6 +5498,10 @@ export type Database = {
         Args: { p_member: string }
         Returns: Json
       }
+      kmd_my_wallet_balance: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       kmd_notifications_mark_read: {
         Args: { p_ids?: string[] }
         Returns: Json
@@ -5362,6 +5531,16 @@ export type Database = {
       }
       kmd_reconcile_member_balance: {
         Args: { p_member: string }
+        Returns: Json
+      }
+      kmd_refund_wallet_payment: {
+        Args: {
+          p_actor: string
+          p_amount: number
+          p_idempotency_key?: string
+          p_payment_id: string
+          p_reason: string
+        }
         Returns: Json
       }
       kmd_register_member: {
@@ -5532,6 +5711,14 @@ export type Database = {
       kmd_username_available: {
         Args: { p_username: string }
         Returns: boolean
+      }
+      kmd_wallet_pay_order: {
+        Args: {
+          p_actor: string
+          p_idempotency_key?: string
+          p_order_id: string
+        }
+        Returns: Json
       }
     }
     Enums: {

@@ -1,0 +1,1 @@
+update public.profiles set account_status = 'active' where username = 'testsponsor1'; select username, account_status from public.profiles where username = 'testsponsor1'

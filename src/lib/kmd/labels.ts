@@ -72,6 +72,8 @@ const AUDIT_ACTION: Record<string, Descriptor> = {
   ACCOUNT_TYPE_CHANGE: { label: "Account Type Changed", tone: "info" },
   ROLE_GRANTED: { label: "Role Granted", tone: "gold" },
   POINT_TO_WALLET_CONVERSION: { label: "Points to Wallet", tone: "platinum" },
+  WALLET_PAYMENT: { label: "Paid from Wallet", tone: "gold" },
+  WALLET_REFUND: { label: "Wallet Refund", tone: "info" },
 };
 
 const PAYMENT_METHOD: Record<string, Descriptor> = {
@@ -81,6 +83,14 @@ const PAYMENT_METHOD: Record<string, Descriptor> = {
   bank_transfer: { label: "Bank Transfer", tone: "platinum" },
   cash: { label: "Cash", tone: "neutral" },
   other: { label: "Other", tone: "neutral" },
+  shopping_wallet: { label: "Shopping Wallet", tone: "gold" },
+};
+
+/** Lifecycle of a payment taken from the Shopping Wallet. */
+const WALLET_PAYMENT_STATUS: Record<string, Descriptor> = {
+  completed: { label: "Paid", tone: "success" },
+  partially_refunded: { label: "Partly refunded", tone: "warning" },
+  refunded: { label: "Refunded", tone: "neutral" },
 };
 
 /** Lifecycle state of a submitted payment proof. */
@@ -112,6 +122,7 @@ export const redemptionType = (key?: string | null) => pick(REDEMPTION_TYPE, key
 export const auditAction = (key?: string | null) => pick(AUDIT_ACTION, key);
 export const paymentMethod = (key?: string | null) => pick(PAYMENT_METHOD, key);
 export const paymentStatus = (key?: string | null) => pick(PAYMENT_STATUS, key);
+export const walletPaymentStatus = (key?: string | null) => pick(WALLET_PAYMENT_STATUS, key);
 export const packageTier = (key?: string | null) => pick(PACKAGE_TIER, key);
 
 export function levelLabel(level?: number | null): string {

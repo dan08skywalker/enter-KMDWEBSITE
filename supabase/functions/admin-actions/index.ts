@@ -382,6 +382,35 @@ Deno.serve(async (req) => {
       case "reconcile_balance":
         return run("kmd_reconcile_member_balance", { p_member: String(body?.memberId ?? "") });
 
+      case "refund_wallet_payment": {
+        // Returns money to the same member's Shopping Wallet. The database
+        // function refuses a second refund of the same amount, so a double click
+        // or a retried request cannot pay the member twice.
+        const paymentId = String(body?.paymentId ?? "");
+        const amount = body?.amount === undefined || body?.amount === null ? 0 : Number(body.amount);
+
+        const { data, error } = await svc.rpc("kmd_refund_wallet_payment", {
+          p_payment_id: paymentId,
+          p_amount: amount,
+          p_actor: actorId,
+          p_reason: reason,
+          p_idempotency_key: body?.idempotencyKey ? String(body.idempotencyKey) : null,
+        });
+
+        if (error) {
+          console.error("admin-actions refund_wallet_payment failed:", error.message);
+          return json({ error: "ACTION_FAILED", message: error.message.replace(/^[A-Z_]+:\s*/, "") }, 400);
+        }
+
+        if (data?.status !== "REFUNDED") {
+          console.log("admin-actions refund_wallet_payment refused:", data?.reason, data?.reasonText);
+          return json({ ok: false, result: data });
+        }
+
+        console.log("admin-actions refund_wallet_payment ->", data.reference, data.amount, data.orderNumber);
+        return json({ ok: true, result: data });
+      }
+
       case "process_qualified_purchase":
         // Manual retry path for an order that qualified but whose engine run failed.
         return run("kmd_process_qualified_purchase", {

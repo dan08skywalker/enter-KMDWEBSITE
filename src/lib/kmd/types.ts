@@ -108,6 +108,11 @@ export interface Order {
   guest_name: string | null;
   guest_email: string | null;
   total_amount: number;
+  subtotal: number;
+  shipping_fee: number;
+  /** false means a delivery fee is still to be confirmed, so the total is not final. */
+  is_shipping_quoted: boolean;
+  payment_method: string | null;
   status: OrderStatus;
   qualification_source: string | null;
   rewards_processed: boolean;
@@ -228,6 +233,47 @@ export interface WalletConversion {
   wallet_balance_before: number | null;
   wallet_balance_after: number | null;
   status: "posted" | "reversed";
+  processed_by: string | null;
+  is_test: boolean;
+  created_at: string;
+}
+
+export type WalletPaymentStatus = "completed" | "partially_refunded" | "refunded";
+
+/** One order settled from the member's Shopping Wallet. */
+export interface WalletPayment {
+  id: string;
+  reference: string;
+  member_id: string;
+  member_code: string;
+  order_id: string;
+  order_number: string;
+  amount: number;
+  wallet_balance_before: number;
+  wallet_balance_after: number;
+  status: WalletPaymentStatus;
+  refunded_amount: number;
+  wallet_ledger_id: string | null;
+  idempotency_key: string | null;
+  processed_by: string | null;
+  is_test: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Money returned to the member's Shopping Wallet for a wallet payment. */
+export interface WalletPaymentRefund {
+  id: string;
+  reference: string;
+  payment_id: string;
+  member_id: string;
+  member_code: string;
+  order_id: string;
+  order_number: string;
+  amount: number;
+  reason: string | null;
+  wallet_balance_before: number;
+  wallet_balance_after: number;
   processed_by: string | null;
   is_test: boolean;
   created_at: string;

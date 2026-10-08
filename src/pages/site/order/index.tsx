@@ -8,6 +8,7 @@ import {
   Loader2,
   Package,
   Truck,
+  Wallet,
 } from "lucide-react";
 import { PageHero, Section, SiteShell } from "@/components/site/site-shell";
 import { PaymentDetails } from "@/components/site/payment-details";
@@ -177,6 +178,7 @@ export default function OrderConfirmationPage() {
   }
 
   const status = STATUS_COPY[order.status ?? "pending_payment"] ?? STATUS_COPY.pending_payment;
+  const walletPaid = Boolean(order.walletPayment);
   const needsProof = order.status === "pending_payment" || order.status === "rejected";
   const toneClass =
     status.tone === "ok"
@@ -185,35 +187,91 @@ export default function OrderConfirmationPage() {
         ? "border-destructive/35 bg-destructive/10"
         : "border-warning/35 bg-warning/10";
 
+  // A wallet payment needs no receipt and no paying-in instructions: it is
+  // settled the moment the order was placed, so the page says so instead.
+  const headline = walletPaid
+    ? {
+        label: "Paid with Shopping Wallet",
+        detail:
+          "The order total was taken from your Shopping Wallet and your order is confirmed. Nothing else is due.",
+        tone: "ok" as const,
+      }
+    : status;
+  const headlineTone = walletPaid ? "border-success/35 bg-success/10" : toneClass;
+
   return (
     <SiteShell>
       <PageHero
         eyebrow={`Order ${order.orderNumber}`}
-        title={status.label}
-        intro={status.detail}
+        title={headline.label}
+        intro={headline.detail}
       />
 
       <Section>
         <div className="grid gap-8 lg:grid-cols-[1fr_22rem]">
           <div className="space-y-6">
-            <section className={`rounded-xl border p-5 ${toneClass}`}>
+            <section className={`rounded-xl border p-5 ${headlineTone}`}>
               <p className="flex items-center gap-2 text-sm font-semibold">
-                {status.tone === "ok" ? (
+                {headline.tone === "ok" ? (
                   <CheckCircle2 className="h-4 w-4" />
-                ) : status.tone === "bad" ? (
-                  <Clock className="h-4 w-4" />
                 ) : (
                   <Clock className="h-4 w-4" />
                 )}
-                {status.label}
+                {headline.label}
               </p>
-              <p className="mt-1 text-xs leading-relaxed text-foreground/85">{status.detail}</p>
+              <p className="mt-1 text-xs leading-relaxed text-foreground/85">{headline.detail}</p>
               {order.createdAt ? (
                 <p className="mt-2 text-[11px] text-muted-foreground">
                   Placed {formatDateTime(order.createdAt)}
                 </p>
               ) : null}
             </section>
+
+            {walletPaid && order.walletPayment ? (
+              <section className="kmd-panel p-6">
+                <h2 className="flex items-center gap-2 text-sm font-semibold">
+                  <Wallet className="h-4 w-4 text-primary" />
+                  Shopping Wallet payment
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  This is your receipt for the payment taken from your Shopping Wallet balance.
+                </p>
+                <dl className="mt-4 space-y-2 text-sm">
+                  <div className="flex items-center justify-between">
+                    <dt className="text-muted-foreground">Payment method</dt>
+                    <dd className="font-semibold">Shopping Wallet</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-muted-foreground">Transaction reference</dt>
+                    <dd className="font-mono text-xs">{order.walletPayment.reference}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-muted-foreground">Date and time</dt>
+                    <dd>{formatDateTime(order.walletPayment.paidAt)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <dt className="text-muted-foreground">Amount deducted</dt>
+                    <dd className="font-semibold tabular-nums">
+                      {formatPeso(order.walletPayment.amount)}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between border-t pt-2">
+                    <dt className="text-muted-foreground">Shopping Wallet balance after payment</dt>
+                    <dd className="font-bold tabular-nums">
+                      {formatPeso(order.walletPayment.walletBalanceAfter)}
+                    </dd>
+                  </div>
+                  {order.walletPayment.refundedAmount > 0 ? (
+                    <div className="flex items-center justify-between text-[hsl(var(--success))]">
+                      <dt>Returned to your wallet</dt>
+                      <dd className="font-semibold tabular-nums">
+                        {formatPeso(order.walletPayment.refundedAmount)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </section>
+            ) : null}
 
             {needsProof ? (
               <section className="kmd-panel p-6">
@@ -336,16 +394,18 @@ export default function OrderConfirmationPage() {
               </p>
             </div>
 
-            <div className="kmd-panel p-5">
-              <p className="kmd-eyebrow text-accent">Where to pay</p>
-              <div className="mt-3">
-                <PaymentDetails
-                  accounts={paymentAccounts}
-                  selectedMethod={order.paymentMethod}
-                  readOnly
-                />
+            {!walletPaid ? (
+              <div className="kmd-panel p-5">
+                <p className="kmd-eyebrow text-accent">Where to pay</p>
+                <div className="mt-3">
+                  <PaymentDetails
+                    accounts={paymentAccounts}
+                    selectedMethod={order.paymentMethod}
+                    readOnly
+                  />
+                </div>
               </div>
-            </div>
+            ) : null}
 
             <div className="kmd-panel p-5">
               <p className="kmd-eyebrow text-accent">Need help?</p>

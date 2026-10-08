@@ -114,6 +114,16 @@ export interface TrackedOrder {
   status?: string;
   fulfillmentStatus?: string;
   paymentMethod?: string | null;
+  /** Present when the order was settled from the member's Shopping Wallet. */
+  walletPayment?: {
+    reference: string;
+    amount: number;
+    paidAt: string;
+    walletBalanceBefore: number;
+    walletBalanceAfter: number;
+    status: string;
+    refundedAmount: number;
+  } | null;
   subtotal?: number;
   shippingFee?: number;
   isShippingQuoted?: boolean;
@@ -143,4 +153,10 @@ export interface PlacedOrder {
   totalAmount?: number;
   customerType?: string;
   reasonText?: string;
+  /** Returned by a Shopping Wallet checkout, where the order is paid as it is placed. */
+  paymentMethod?: string;
+  reference?: string;
+  amount?: number;
+  walletBalanceBefore?: number;
+  walletBalance?: number;
 }

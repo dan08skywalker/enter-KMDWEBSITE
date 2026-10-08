@@ -1,0 +1,1 @@
+update public.profiles set account_status = 'suspended' where username = 'testsponsor1'; select username, account_status from public.profiles where username = 'testsponsor1'

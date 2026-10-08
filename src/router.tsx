@@ -73,6 +73,7 @@ import AdminPointTransactions from "./pages/admin/point-transactions";
 import AdminLoyaltyTransactions from "./pages/admin/loyalty-transactions";
 import AdminLoyaltyAdjustments from "./pages/admin/loyalty-adjustments";
 import AdminWalletConversions from "./pages/admin/wallet-conversions";
+import AdminWalletPayments from "./pages/admin/wallet-payments";
 import AdminRedemptions from "./pages/admin/redemptions";
 import AdminSupport from "./pages/admin/support";
 import AdminContent from "./pages/admin/content";
@@ -184,6 +185,7 @@ export const routers: Array<{
       { path: "loyalty-transactions", name: "admin-loyalty-transactions", element: <AdminLoyaltyTransactions /> },
       { path: "loyalty-adjustments", name: "admin-loyalty-adjustments", element: <AdminLoyaltyAdjustments /> },
       { path: "wallet-conversions", name: "admin-wallet-conversions", element: <AdminWalletConversions /> },
+      { path: "wallet-payments", name: "admin-wallet-payments", element: <AdminWalletPayments /> },
       { path: "redemptions", name: "admin-redemptions", element: <AdminRedemptions /> },
       { path: "support", name: "admin-support", element: <AdminSupport /> },
       { path: "content", name: "admin-content", element: <AdminContent /> },

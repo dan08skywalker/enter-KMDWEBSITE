@@ -4,7 +4,8 @@
 //   create_order        - place a purchase (price and SKU resolved server-side)
 //   submit_proof        - upload payment proof and move the order to proof_submitted
 //   request_redemption  - redeem available points for GCash / bank payout
-//   convert_to_wallet   - convert available points into Shopping Wallet balance
+//   pay_with_wallet     - settle an order from the member's own Shopping Wallet
+//   convert_balance     - move balance between the Shopping Wallet and Points
 //   update_profile      - update contact details
 //
 // Authorization is the caller's own identity; every amount is calculated in the
@@ -193,6 +194,35 @@ Deno.serve(async (req) => {
         status: "proof_submitted",
         message: "Payment proof submitted. An administrator will verify it.",
       });
+    }
+
+    if (action === "pay_with_wallet") {
+      // The order is paid from the caller's own Shopping Wallet. The wallet that
+      // pays is always the payer's, and the amount is the order's stored total,
+      // both decided in the database function - never in this request.
+      const orderId = String(body?.orderId ?? "");
+      const idempotencyKey = body?.idempotencyKey ? String(body.idempotencyKey) : null;
+      if (!orderId) return json({ error: "VALIDATION", message: "An order is required" });
+
+      const { data, error } = await svc.rpc("kmd_wallet_pay_order", {
+        p_order_id: orderId,
+        p_actor: user.id,
+        p_idempotency_key: idempotencyKey,
+      });
+
+      if (error) {
+        console.error("member-actions pay_with_wallet failed:", error.message);
+        return json({ error: "WALLET_PAYMENT_FAILED", message: error.message.replace(/^[A-Z_]+:\s*/, "") }, 400);
+      }
+
+      const status = String(data?.status ?? "");
+      console.log("member-actions pay_with_wallet ->", status, data?.reference ?? "", data?.orderNumber ?? "");
+
+      if (status !== "PAID" && status !== "DUPLICATE") {
+        return json({ ok: false, error: data?.reason ?? "WALLET_PAYMENT_FAILED", message: data?.reasonText ?? "The Shopping Wallet payment could not be completed.", payment: data });
+      }
+
+      return json({ ok: true, payment: data });
     }
 
     if (action === "request_redemption") {

@@ -1,0 +1,148 @@
+-- ============================================================
+-- KMD EMPIRE · Shopping Wallet as a payment method (3/3)
+-- Refunding a wallet payment: the money goes back to the same member's Shopping
+-- Wallet in one transaction, and a payment can never be refunded twice.
+-- ============================================================
+
+create or replace function public.kmd_refund_wallet_payment(
+  p_payment_id uuid,
+  p_amount numeric,
+  p_actor uuid,
+  p_reason text,
+  p_idempotency_key text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_payment public.wallet_payments%rowtype;
+  v_member public.profiles%rowtype;
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_remaining numeric(14,2);
+  v_amount numeric(14,2);
+  v_balances jsonb;
+  v_before numeric(14,2);
+  v_after numeric(14,2);
+  v_reference text;
+  v_txn text;
+  v_ledger uuid;
+  v_full boolean;
+  v_existing public.wallet_payment_refunds%rowtype;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required');
+  end if;
+
+  if v_reason is null then
+    return jsonb_build_object('status','FAILED','reason','REASON_REQUIRED',
+      'reasonText','A reason is required so the refund is traceable.');
+  end if;
+
+  select * into v_payment from public.wallet_payments where id = p_payment_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PAYMENT_NOT_FOUND',
+      'reasonText','That Shopping Wallet payment does not exist.');
+  end if;
+
+  -- A second refund of the same money is refused here, which is what makes the
+  -- refund idempotent per payment.
+  v_remaining := round(coalesce(v_payment.amount, 0) - coalesce(v_payment.refunded_amount, 0), 2);
+  if v_remaining <= 0 then
+    return jsonb_build_object('status','FAILED','reason','ALREADY_REFUNDED',
+      'reasonText','Payment ' || v_payment.reference || ' has already been refunded in full. Nothing was returned again.',
+      'amount', v_payment.amount, 'refundedAmount', v_payment.refunded_amount);
+  end if;
+
+  if v_key is not null then
+    select * into v_existing from public.wallet_payment_refunds where idempotency_key = v_key;
+    if found then
+      return jsonb_build_object('status','DUPLICATE','reason','DUPLICATE_SUBMISSION',
+        'reference', v_existing.reference, 'amount', v_existing.amount,
+        'reasonText','This refund was already processed, so nothing was returned again.');
+    end if;
+  end if;
+
+  v_amount := round(coalesce(nullif(p_amount, 0), v_remaining), 2);
+  if v_amount <= 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_AMOUNT',
+      'reasonText','Enter an amount greater than zero to refund.');
+  end if;
+  if v_amount > v_remaining then
+    return jsonb_build_object('status','FAILED','reason','REFUND_EXCEEDS_REMAINING',
+      'reasonText','That is more than the ' || to_char(v_remaining, 'FM999999999990.00') || ' still refundable on ' || v_payment.reference || '.',
+      'refundable', v_remaining, 'requested', v_amount);
+  end if;
+
+  v_full := v_amount = v_remaining;
+
+  -- Serialise against the member's own wallet activity before reading a balance.
+  select * into v_member from public.profiles where id = v_payment.member_id for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND',
+      'reasonText','The member record for this payment no longer exists.');
+  end if;
+
+  v_balances := public.kmd_member_balances(v_payment.member_id);
+  v_before := round(coalesce((v_balances->>'shoppingWallet')::numeric, 0), 2);
+  v_after := round(v_before + v_amount, 2);
+  v_reference := 'KMD-WRF-' || lpad(nextval('public.kmd_wallet_refund_seq')::text, 6, '0');
+
+  v_txn := 'KMD-WL-' || lpad(nextval('public.kmd_wallet_txn_seq')::text, 8, '0');
+  insert into public.shopping_wallet_ledger (
+    transaction_id, member_id, member_code, direction, amount, status, trigger_event,
+    posted_at, processed_by, idempotency_key, note, is_test
+  ) values (
+    v_txn, v_payment.member_id, v_payment.member_code, 'CREDIT', v_amount, 'posted',
+    'wallet_refund', now(), p_actor,
+    case when v_key is null then null else v_key || ':refund' end,
+    'Refund for order ' || v_payment.order_number || ' to Shopping Wallet (' || v_reference || ')',
+    v_payment.is_test
+  ) returning id into v_ledger;
+
+  update public.profiles set shopping_wallet_balance = v_after where id = v_payment.member_id;
+
+  insert into public.wallet_payment_refunds (
+    reference, payment_id, member_id, member_code, order_id, order_number, amount, reason,
+    wallet_balance_before, wallet_balance_after, wallet_ledger_id, idempotency_key,
+    processed_by, is_test
+  ) values (
+    v_reference, v_payment.id, v_payment.member_id, v_payment.member_code, v_payment.order_id,
+    v_payment.order_number, v_amount, v_reason,
+    v_before, v_after, v_ledger, v_key, p_actor, v_payment.is_test
+  );
+
+  update public.wallet_payments
+     set refunded_amount = round(coalesce(refunded_amount, 0) + v_amount, 2),
+         status = case when v_full then 'refunded' else 'partially_refunded' end
+   where id = v_payment.id;
+
+  perform public.kmd_audit(p_actor, 'WALLET_REFUND', v_payment.member_id, v_payment.order_id,
+    'wallet_payments', v_payment.reference,
+    jsonb_build_object('walletBalance', v_before, 'refundedAmount', v_payment.refunded_amount),
+    jsonb_build_object('walletBalance', v_after, 'amount', v_amount, 'reference', v_reference),
+    'Refund of ' || to_char(v_amount, 'FM999999999990.00') || ' returned to the Shopping Wallet for order '
+      || v_payment.order_number || ' (' || v_reference || ')', v_payment.is_test);
+
+  perform public.kmd_notify(v_payment.member_id, 'order.wallet_refund',
+    'Shopping Wallet refund: ' || v_payment.order_number,
+    to_char(v_amount, 'FM999999999990.00') || ' was returned to your Shopping Wallet for order '
+      || v_payment.order_number || ' (reference ' || v_reference || '). Remaining balance: '
+      || to_char(v_after, 'FM999999999990.00') || '.',
+    '/app/shopping-wallet', jsonb_build_object('orderNumber', v_payment.order_number,
+      'reference', v_reference, 'amount', v_amount, 'walletBalance', v_after));
+
+  return jsonb_build_object(
+    'status','REFUNDED',
+    'reference', v_reference,
+    'paymentReference', v_payment.reference,
+    'orderNumber', v_payment.order_number,
+    'amount', v_amount,
+    'refundedTotal', round(coalesce(v_payment.refunded_amount, 0) + v_amount, 2),
+    'paymentAmount', v_payment.amount,
+    'fullyRefunded', v_full,
+    'walletBalance', v_after,
+    'reasonText','Refund of ' || to_char(v_amount, 'FM999999999990.00') || ' returned to the member Shopping Wallet (' || v_reference || ').');
+end $$;
+
+revoke all on function public.kmd_refund_wallet_payment(uuid,numeric,uuid,text,text) from public, anon, authenticated;
+grant execute on function public.kmd_refund_wallet_payment(uuid,numeric,uuid,text,text) to service_role;

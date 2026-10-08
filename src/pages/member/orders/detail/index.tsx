@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, FileText, Loader2, Upload } from "lucide-react";
+import { ArrowLeft, FileText, Loader2, ShoppingBag, Upload, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeFunction } from "@/lib/kmd/invoke";
+import { useWalletBalance } from "@/hooks/use-wallet-balance";
 import { PageHeader } from "@/components/kmd/page-header";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { OrderStatusTimeline } from "@/components/kmd/order-status-timeline";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -28,8 +37,8 @@ import {
 } from "@/components/ui/table";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, formatDateTime, formatPeso } from "@/lib/kmd/format";
-import { orderStatus, paymentMethod } from "@/lib/kmd/labels";
-import type { Order, OrderItem, PaymentProof, PointLedgerRow } from "@/lib/kmd/types";
+import { orderStatus, paymentMethod, walletPaymentStatus } from "@/lib/kmd/labels";
+import type { Order, OrderItem, PaymentProof, PointLedgerRow, WalletPayment } from "@/lib/kmd/types";
 
 const MAX_PROOF_BYTES = 6 * 1024 * 1024;
 
@@ -40,6 +49,13 @@ export default function MemberOrderDetail() {
   const [items, setItems] = useState<OrderItem[]>([]);
   const [proofs, setProofs] = useState<PaymentProof[]>([]);
   const [ownRewards, setOwnRewards] = useState<PointLedgerRow[]>([]);
+  const [walletPayment, setWalletPayment] = useState<WalletPayment | null>(null);
+
+  const wallet = useWalletBalance();
+  const [walletDialogOpen, setWalletDialogOpen] = useState(false);
+  const [walletBusy, setWalletBusy] = useState(false);
+  const [walletError, setWalletError] = useState<string | null>(null);
+  const [walletKey, setWalletKey] = useState<string | null>(null);
 
   const [method, setMethod] = useState("gcash");
   const [reference, setReference] = useState("");
@@ -54,7 +70,7 @@ export default function MemberOrderDetail() {
     if (!orderId) return;
     setLoading(true);
 
-    const [orderResult, itemResult, proofResult, ledgerResult] = await Promise.all([
+    const [orderResult, itemResult, proofResult, ledgerResult, walletResult] = await Promise.all([
       supabase.from("orders").select("*").eq("id", orderId).maybeSingle(),
       supabase.from("order_items").select("*").eq("order_id", orderId),
       supabase
@@ -63,17 +79,20 @@ export default function MemberOrderDetail() {
         .eq("order_id", orderId)
         .order("submitted_at", { ascending: false }),
       supabase.from("point_ledger").select("*").eq("order_id", orderId),
+      supabase.from("wallet_payments").select("*").eq("order_id", orderId).maybeSingle(),
     ]);
 
     if (orderResult.error) console.error("Could not load the order:", orderResult.error.message);
     if (itemResult.error) console.error("Could not load order items:", itemResult.error.message);
     if (proofResult.error) console.error("Could not load payment proofs:", proofResult.error.message);
     if (ledgerResult.error) console.error("Could not load ledger rows:", ledgerResult.error.message);
+    if (walletResult.error) console.error("Could not load the wallet payment:", walletResult.error.message);
 
     setOrder((orderResult.data as unknown as Order | null) ?? null);
     setItems((itemResult.data ?? []) as unknown as OrderItem[]);
     setProofs((proofResult.data ?? []) as unknown as PaymentProof[]);
     setOwnRewards((ledgerResult.data ?? []) as unknown as PointLedgerRow[]);
+    setWalletPayment((walletResult.data as unknown as WalletPayment | null) ?? null);
     setLoading(false);
   }, [orderId]);
 
@@ -158,6 +177,49 @@ export default function MemberOrderDetail() {
     window.open(outcome.data.url, "_blank", "noopener,noreferrer");
   };
 
+  /**
+   * Pay this order from the Shopping Wallet. The backend verifies that the order
+   * and the wallet are both the caller's, deducts the order's own total and marks
+   * it paid in one transaction, so a failure leaves the balance untouched.
+   */
+  const payWithWallet = async () => {
+    if (!order) return;
+    setWalletBusy(true);
+    setWalletError(null);
+
+    const outcome = await invokeFunction<{
+      payment?: { status?: string; reference?: string; reasonText?: string; walletBalance?: number };
+    }>("member-actions", {
+      action: "pay_with_wallet",
+      orderId: order.id,
+      idempotencyKey: walletKey,
+    });
+
+    setWalletBusy(false);
+    const payment = outcome.data?.payment;
+
+    if (!outcome.ok) {
+      setWalletError(outcome.error ?? "The Shopping Wallet payment could not be completed.");
+      await wallet.reload();
+      return;
+    }
+
+    if (payment?.status === "DUPLICATE") {
+      toast.info("Already paid from your Shopping Wallet", {
+        description: payment.reasonText,
+      });
+    } else {
+      toast.success("Paid with Shopping Wallet", {
+        description:
+          payment?.reasonText ??
+          `Reference ${payment?.reference ?? "\u2014"}. Order ${order.order_number} is confirmed.`,
+      });
+    }
+
+    setWalletDialogOpen(false);
+    await Promise.all([load(), wallet.reload()]);
+  };
+
   if (loading) {
     return (
       <>
@@ -193,6 +255,11 @@ export default function MemberOrderDetail() {
 
   const status = orderStatus(order.status);
   const canSubmitProof = !["confirmed", "cancelled", "rejected"].includes(order.status);
+  // A wallet payment needs a final total, so it is only offered while nothing is
+  // still waiting on a delivery fee.
+  const canPayWithWallet =
+    order.status === "pending_payment" && order.is_shipping_quoted && !walletPayment;
+  const walletCovers = wallet.balance >= order.total_amount;
 
   return (
     <>
@@ -231,6 +298,181 @@ export default function MemberOrderDetail() {
           rewardsProcessedAt={order.rewards_processed_at}
         />
       </div>
+
+      {walletPayment ? (
+        <div className="kmd-panel p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <Wallet className="h-4 w-4 text-primary" />
+            Paid with Shopping Wallet
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            This order was settled from your Shopping Wallet, so no receipt was needed.
+          </p>
+          <dl className="mt-4 space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Payment method</dt>
+              <dd className="font-semibold">Shopping Wallet</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Transaction reference</dt>
+              <dd className="font-mono text-xs">{walletPayment.reference}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Date and time</dt>
+              <dd>{formatDateTime(walletPayment.created_at)}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Amount deducted</dt>
+              <dd className="font-semibold tabular-nums">{formatPeso(walletPayment.amount)}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Wallet balance after payment</dt>
+              <dd className="font-semibold tabular-nums">
+                {formatPeso(walletPayment.wallet_balance_after)}
+              </dd>
+            </div>
+            {walletPayment.refunded_amount > 0 ? (
+              <div className="flex items-center justify-between border-t pt-2 text-[hsl(var(--success))]">
+                <dt>Returned to your wallet</dt>
+                <dd className="font-semibold tabular-nums">
+                  {formatPeso(walletPayment.refunded_amount)}
+                </dd>
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Status</dt>
+              <dd>
+                {(() => {
+                  const descriptor = walletPaymentStatus(walletPayment.status);
+                  return <StatusBadge label={descriptor.label} tone={descriptor.tone} />;
+                })()}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : null}
+
+      {canPayWithWallet ? (
+        <div className="kmd-panel p-5">
+          <h2 className="flex items-center gap-2 text-sm font-semibold">
+            <ShoppingBag className="h-4 w-4 text-primary" />
+            Pay with Shopping Wallet
+          </h2>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Settle this order instantly from your wallet balance. The total is deducted and the order
+            is marked paid in one step, with no receipt to upload.
+          </p>
+
+          <dl className="mt-4 space-y-2 text-sm">
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Order total</dt>
+              <dd className="font-semibold tabular-nums">{formatPeso(order.total_amount)}</dd>
+            </div>
+            <div className="flex items-center justify-between">
+              <dt className="text-muted-foreground">Shopping Wallet balance</dt>
+              <dd className="font-semibold tabular-nums">
+                {wallet.loading ? <Loader2 className="h-4 w-4 animate-spin" /> : formatPeso(wallet.balance)}
+              </dd>
+            </div>
+            {walletCovers ? (
+              <div className="flex items-center justify-between border-t pt-2">
+                <dt className="text-muted-foreground">Balance left after payment</dt>
+                <dd className="font-bold tabular-nums text-[hsl(var(--success))]">
+                  {formatPeso(wallet.balance - order.total_amount)}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+
+          {walletCovers ? (
+            <Button
+              className="mt-4"
+              onClick={() => {
+                setWalletError(null);
+                setWalletKey(crypto.randomUUID());
+                setWalletDialogOpen(true);
+              }}
+            >
+              <ShoppingBag className="h-4 w-4" />
+              Pay {formatPeso(order.total_amount)} from my wallet
+            </Button>
+          ) : (
+            <div className="mt-4 rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+              <p className="text-xs font-semibold text-destructive">
+                Short by {formatPeso(order.total_amount - wallet.balance)}
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Convert Available Unilevel Points into your Shopping Wallet to cover the difference.
+                This order stays open while you do.
+              </p>
+              <Button asChild variant="outline" size="sm" className="mt-2">
+                <Link to="/app/shopping-wallet">
+                  <ShoppingBag className="h-3.5 w-3.5" />
+                  Convert Points to Shopping Wallet
+                </Link>
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      <Dialog
+        open={walletDialogOpen}
+        onOpenChange={(open) => {
+          if (walletBusy) return;
+          setWalletDialogOpen(open);
+          if (!open) setWalletError(null);
+        }}
+      >
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Confirm Shopping Wallet payment</DialogTitle>
+            <DialogDescription>
+              Confirm the amount before it is deducted. Nothing is charged unless the whole payment
+              succeeds.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <dl className="space-y-2 rounded-lg border p-4 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Order total</dt>
+                <dd className="font-semibold tabular-nums">{formatPeso(order.total_amount)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt className="text-muted-foreground">Shopping Wallet balance</dt>
+                <dd className="font-semibold tabular-nums">{formatPeso(wallet.balance)}</dd>
+              </div>
+              <div className="flex justify-between border-t pt-2">
+                <dt className="text-muted-foreground">Remaining after payment</dt>
+                <dd className="font-bold tabular-nums text-[hsl(var(--success))]">
+                  {formatPeso(wallet.balance - order.total_amount)}
+                </dd>
+              </div>
+            </dl>
+
+            {walletError ? (
+              <p className="rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs font-medium text-destructive">
+                {walletError}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setWalletDialogOpen(false)}
+              disabled={walletBusy}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void payWithWallet()} disabled={walletBusy || !walletCovers}>
+              {walletBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShoppingBag className="h-4 w-4" />}
+              Confirm and pay
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <div className="kmd-panel overflow-hidden">
         <div className="border-b px-5 py-4">
