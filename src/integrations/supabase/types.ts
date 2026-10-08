@@ -5070,6 +5070,10 @@ export type Database = {
         Args: { p_actor: string; p_payload: Json }
         Returns: Json
       }
+      kmd_assert_member_active: {
+        Args: { p_action: string; p_member: string }
+        Returns: undefined
+      }
       kmd_audit: {
         Args: {
           p_action: string

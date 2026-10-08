@@ -1,0 +1,89 @@
+-- ============================================================
+-- KMD EMPIRE · migration 10 · suspension enforcement
+--
+-- Suspending a member must actually stop them transacting, otherwise the
+-- setting is only cosmetic. Guards are attached as BEFORE INSERT triggers so
+-- every code path is covered - the member-area order function, the public
+-- storefront checkout and any future path - without rewriting those functions.
+--
+-- Only 'suspended' and 'inactive' block a transaction. Those are deliberate
+-- administrator restrictions. A brand new 'pending' account keeps the
+-- behaviour it already had, so activation is not a prerequisite for buying.
+--
+-- Trigger names are new: verified no trigger exists on orders, redemptions or
+-- point_ledger before this migration.
+-- ============================================================
+
+create or replace function public.kmd_assert_member_active(p_member uuid, p_action text)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare
+  v_status text;
+  v_code text;
+begin
+  if p_member is null then
+    return;
+  end if;
+
+  select p.account_status, p.member_code into v_status, v_code
+  from public.profiles p
+  where p.id = p_member;
+
+  -- An unknown member is left for the foreign keys to reject.
+  if v_status is null then
+    return;
+  end if;
+
+  if v_status in ('suspended','inactive') then
+    raise exception
+      'KMD_ACCOUNT_NOT_ACTIVE: member % is % - % is not available on a restricted account. Please contact an administrator.',
+      v_code, v_status, p_action;
+  end if;
+end $$;
+
+-- ---------- orders ----------
+create or replace function public.kmd_guard_order_buyer()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.kmd_assert_member_active(new.buyer_profile_id, 'placing an order');
+  return new;
+end $$;
+
+create trigger kmd_orders_guard_buyer
+  before insert on public.orders
+  for each row execute function public.kmd_guard_order_buyer();
+
+-- ---------- payout requests ----------
+create or replace function public.kmd_guard_redemption_member()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.kmd_assert_member_active(new.member_id, 'requesting a payout');
+  return new;
+end $$;
+
+create trigger kmd_redemptions_guard_member
+  before insert on public.redemptions
+  for each row execute function public.kmd_guard_redemption_member();
+
+-- ---------- points -> shopping wallet conversion ----------
+create or replace function public.kmd_guard_wallet_conversion()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  -- Only the conversion debit is restricted. Unilevel bonuses, reversals and
+  -- administrator adjustments must keep working on any account.
+  if new.transaction_type = 'SHOPPING_WALLET_CONVERSION' and new.direction = 'DEBIT' then
+    perform public.kmd_assert_member_active(new.beneficiary_id, 'converting points to the shopping wallet');
+  end if;
+  return new;
+end $$;
+
+create trigger kmd_point_ledger_guard_conversion
+  before insert on public.point_ledger
+  for each row execute function public.kmd_guard_wallet_conversion();
+
+-- ---------- grants: internal only ----------
+revoke all on function public.kmd_assert_member_active(uuid,text) from public, anon, authenticated;
+revoke all on function public.kmd_guard_order_buyer() from public, anon, authenticated;
+revoke all on function public.kmd_guard_redemption_member() from public, anon, authenticated;
+revoke all on function public.kmd_guard_wallet_conversion() from public, anon, authenticated;
+grant execute on function public.kmd_assert_member_active(uuid,text) to service_role;

@@ -138,7 +138,7 @@ export default function AdminMembers() {
     setSponsorResults((data ?? []) as unknown as Profile[]);
   };
 
-  const openAction = (kind: ActionKind, member: Profile) => {
+  const openAction = (kind: ActionKind, member: Profile, presetStatus?: string) => {
     setAction({ kind, member });
     setReason("");
     setPackageId(member.package_id ?? "");
@@ -150,7 +150,7 @@ export default function AdminMembers() {
     setAdjustPoints("");
     setDirection("CREDIT");
     setReconcile(null);
-    setMemberStatus(member.account_status === "active" ? "inactive" : "active");
+    setMemberStatus(presetStatus ?? (member.account_status === "active" ? "suspended" : "active"));
     setConfirmCode("");
   };
 
@@ -352,19 +352,21 @@ export default function AdminMembers() {
               Reconcile balance
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => openAction("status", row)}>
-              {row.account_status === "active" ? (
-                <>
-                  <UserRoundX className="h-3.5 w-3.5" />
-                  Deactivate member
-                </>
-              ) : (
-                <>
-                  <UserRoundCheck className="h-3.5 w-3.5" />
-                  Reactivate member
-                </>
-              )}
-            </DropdownMenuItem>
+            {row.account_status !== "suspended" ? (
+              <DropdownMenuItem
+                onSelect={() => openAction("status", row, "suspended")}
+                className="text-[hsl(var(--warning))] focus:text-[hsl(var(--warning))]"
+              >
+                <UserRoundX className="h-3.5 w-3.5" />
+                Suspend member
+              </DropdownMenuItem>
+            ) : null}
+            {row.account_status === "suspended" || row.account_status === "inactive" ? (
+              <DropdownMenuItem onSelect={() => openAction("status", row, "active")}>
+                <UserRoundCheck className="h-3.5 w-3.5" />
+                Reactivate member
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuItem
               onSelect={() => openAction("delete", row)}
               className="text-destructive focus:text-destructive"
@@ -388,6 +390,18 @@ export default function AdminMembers() {
     status: "Change membership status",
     delete: "Delete member",
   };
+
+  // The suspension dialog is titled by what the administrator is actually doing,
+  // not by the shared "status" kind behind it.
+  const dialogTitle = action
+    ? action.kind === "status"
+      ? memberStatus === "suspended"
+        ? "Suspend member"
+        : memberStatus === "active"
+          ? "Reactivate member"
+          : "Mark member inactive"
+      : actionTitle[action.kind]
+    : "";
 
   return (
     <>
@@ -447,7 +461,7 @@ export default function AdminMembers() {
       <Dialog open={action !== null} onOpenChange={(open) => !open && closeAction()}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>{action ? actionTitle[action.kind] : ""}</DialogTitle>
+            <DialogTitle>{dialogTitle}</DialogTitle>
             <DialogDescription>
               {action ? `${action.member.full_name} (${action.member.member_code})` : ""}
             </DialogDescription>
@@ -631,10 +645,23 @@ export default function AdminMembers() {
                   rows={2}
                 />
               </div>
-              <p className="text-xs text-muted-foreground">
-                Nothing is deleted. An inactive or suspended member is simply no longer treated as a
-                qualified upline, and the change can be reversed at any time.
-              </p>
+              <div className="rounded-lg border bg-muted/40 p-3">
+                <p className="text-xs font-semibold">What this status does</p>
+                <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <li>
+                    Suspended and inactive accounts cannot place orders, request payouts or convert
+                    points, and they stop accruing bonuses as an upline.
+                  </li>
+                  <li>
+                    Use Suspended for policy violations and inactivity. The reason you record here is
+                    kept on the audit log against this member.
+                  </li>
+                  <li>
+                    Nothing is deleted and the change is reversible: reactivating restores ordering,
+                    payouts and earning immediately.
+                  </li>
+                </ul>
+              </div>
             </div>
           ) : null}
 

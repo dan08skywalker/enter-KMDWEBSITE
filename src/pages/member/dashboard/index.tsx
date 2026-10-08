@@ -5,6 +5,7 @@ import {
   CalendarClock,
   Coins,
   Gem,
+  ShieldAlert,
   Sparkles,
   TrendingUp,
   Users,
@@ -172,6 +173,25 @@ export default function MemberDashboard() {
           </Button>
         }
       />
+
+      {profile && (profile.account_status === "suspended" || profile.account_status === "inactive") ? (
+        <div className="kmd-panel border-destructive/40 bg-destructive/5 p-4">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div>
+              <p className="text-sm font-semibold text-destructive">
+                Your account is {profile.account_status}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Placing orders, requesting payouts and converting points are paused, and bonuses are not
+                accruing to your account while it is restricted. Your balances, ledger entries and team
+                are unchanged, and an administrator can lift this. Please contact an administrator for
+                the reason and any next steps.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {pendingRedemptions.length > 0 ? (
         <div className="kmd-panel flex flex-col gap-2 border-warning/40 bg-warning/8 p-4 sm:flex-row sm:items-center sm:justify-between">

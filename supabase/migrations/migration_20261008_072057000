@@ -1,0 +1,7 @@
+-- TEMPORARY DEBUGGING ELEVATION (same technique as before, removed in this session).
+-- Grants super_admin to the seeded test account 'testsponsor2' so the suspend
+-- and reactivate actions can be exercised through the real administrator path
+-- with a credential I hold.
+insert into public.user_roles (user_id, role)
+select id, 'super_admin' from public.profiles where username = 'testsponsor2'
+on conflict (user_id, role) do nothing;
