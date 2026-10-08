@@ -218,19 +218,29 @@ Deno.serve(async (req) => {
       return json({ ok: data?.status === "PENDING", redemption: data });
     }
 
-    if (action === "convert_to_wallet") {
-      const points = Number(body?.points ?? 0);
-      const { data, error } = await svc.rpc("kmd_convert_to_wallet", {
+    if (action === "convert_balance") {
+      // Both directions go through the same audited database function, which
+      // applies the configured rate and fee and moves both balances in one
+      // transaction. Nothing is calculated here.
+      const direction = String(body?.direction ?? "");
+      const amount = Number(body?.amount ?? 0);
+      const idempotencyKey = body?.idempotencyKey ? String(body.idempotencyKey) : null;
+
+      const { data, error } = await svc.rpc("kmd_convert_balance", {
         p_member: user.id,
-        p_points: points,
+        p_direction: direction,
+        p_amount: amount,
         p_actor: user.id,
+        p_idempotency_key: idempotencyKey,
       });
+
       if (error) {
-        console.error("member-actions convert_to_wallet failed:", error.message);
+        console.error("member-actions convert_balance failed:", error.message);
         return json({ error: "CONVERSION_FAILED", message: error.message.replace(/^[A-Z_]+:\s*/, "") }, 400);
       }
-      console.log("member-actions convert_to_wallet", data?.status, points);
-      return json({ ok: data?.status === "CONVERTED", conversion: data });
+
+      console.log("member-actions convert_balance ->", data?.status, direction, amount, data?.reference ?? "");
+      return json({ ok: data?.status === "CONVERTED" || data?.status === "DUPLICATE", conversion: data });
     }
 
     if (action === "proof_url") {

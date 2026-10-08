@@ -210,6 +210,29 @@ export interface WalletLedgerRow {
   note: string | null;
 }
 
+export type ConversionDirection = "POINTS_TO_WALLET" | "WALLET_TO_POINTS";
+
+export interface WalletConversion {
+  id: string;
+  reference: string;
+  member_id: string;
+  member_code: string;
+  direction: ConversionDirection;
+  amount_deducted: number;
+  amount_credited: number;
+  rate: number;
+  fee_percent: number;
+  fee_amount: number;
+  points_balance_before: number | null;
+  points_balance_after: number | null;
+  wallet_balance_before: number | null;
+  wallet_balance_after: number | null;
+  status: "posted" | "reversed";
+  processed_by: string | null;
+  is_test: boolean;
+  created_at: string;
+}
+
 export interface Redemption {
   id: string;
   redemption_number: string;

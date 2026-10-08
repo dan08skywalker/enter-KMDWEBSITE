@@ -1,0 +1,297 @@
+-- ============================================================
+-- KMD EMPIRE · migration 15 · two-way balance conversion
+--
+-- Members can now move between Shopping Wallet balance and Available
+-- Unilevel Points in either direction, at an administrator-configured rate.
+--
+-- No conversion rate existed before, so `wallet_conversion_rate` is added but
+-- deliberately left UNSET. Until an administrator sets it, every conversion is
+-- refused with a clear reason - the feature is live but inert, exactly as asked.
+-- ============================================================
+
+create sequence if not exists public.kmd_conversion_seq start with 1 increment by 1;
+
+-- The fee stays explicit, defaulting to none.
+insert into public.system_settings (key, value, description)
+values
+  ('wallet_conversion_fee_percent', '0'::jsonb,
+   'Percentage retained on each Shopping Wallet conversion. 0 means no fee.')
+on conflict (key) do nothing;
+
+comment on column public.system_settings.value is
+  'Setting value. wallet_conversion_rate is intentionally absent until an administrator sets it.';
+
+-- ---------- the conversion record ----------
+create table if not exists public.wallet_conversions (
+  id uuid primary key default gen_random_uuid(),
+  reference text not null unique,
+  member_id uuid not null references public.profiles(id),
+  member_code text not null,
+  direction text not null check (direction in ('POINTS_TO_WALLET','WALLET_TO_POINTS')),
+  amount_deducted numeric(14,2) not null check (amount_deducted > 0),
+  amount_credited numeric(14,2) not null check (amount_credited > 0),
+  rate numeric(14,6) not null check (rate > 0),
+  fee_percent numeric(6,3) not null default 0 check (fee_percent >= 0),
+  fee_amount numeric(14,2) not null default 0 check (fee_amount >= 0),
+  points_balance_before numeric(14,2),
+  points_balance_after numeric(14,2),
+  wallet_balance_before numeric(14,2),
+  wallet_balance_after numeric(14,2),
+  status text not null default 'posted' check (status in ('posted','reversed')),
+  point_ledger_id uuid references public.point_ledger(id),
+  wallet_ledger_id uuid references public.shopping_wallet_ledger(id),
+  idempotency_key text unique,
+  processed_by uuid,
+  is_test boolean not null default false,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists wallet_conversions_member_idx on public.wallet_conversions (member_id, created_at desc);
+create index if not exists wallet_conversions_created_idx on public.wallet_conversions (created_at desc);
+
+alter table public.wallet_conversions enable row level security;
+
+create policy wallet_conversions_select_own on public.wallet_conversions
+  for select to authenticated using (member_id = auth.uid());
+
+create policy wallet_conversions_select_admin on public.wallet_conversions
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+-- no client write policy: conversions are written only by the function below
+
+grant select on public.wallet_conversions to authenticated;
+
+-- ---------- the conversion ----------
+create or replace function public.kmd_convert_balance(
+  p_member uuid,
+  p_direction text,
+  p_amount numeric,
+  p_actor uuid,
+  p_idempotency_key text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_direction text := upper(trim(coalesce(p_direction, '')));
+  v_amount numeric(14,2);
+  v_rate numeric(14,6);
+  v_fee_pct numeric(6,3) := 0;
+  v_fee numeric(14,2) := 0;
+  v_net numeric(14,2);
+  v_credited numeric(14,2);
+  v_points_before numeric(14,2);
+  v_wallet_before numeric(14,2);
+  v_points_after numeric(14,2);
+  v_wallet_after numeric(14,2);
+  v_points_available numeric(14,2);
+  v_reference text;
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_point_txn text;
+  v_wallet_txn text;
+  v_point_ledger uuid;
+  v_wallet_ledger uuid;
+  v_existing public.wallet_conversions%rowtype;
+  v_balances jsonb;
+begin
+  if v_direction not in ('POINTS_TO_WALLET','WALLET_TO_POINTS') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_DIRECTION',
+      'reasonText','Choose a conversion direction');
+  end if;
+
+  if p_amount is null or p_amount <= 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_AMOUNT',
+      'reasonText','Enter an amount greater than zero');
+  end if;
+
+  v_amount := round(p_amount, 2);
+
+  if v_amount > 9999999.99 then
+    return jsonb_build_object('status','FAILED','reason','AMOUNT_TOO_LARGE',
+      'reasonText','That amount is larger than a single conversion allows');
+  end if;
+
+  -- The rate has to exist before anything can be converted. A missing setting is
+  -- not treated as 1:1 on purpose: an unconfigured rate must not quietly move
+  -- balances at a rate nobody chose.
+  select (value #>> '{}')::numeric into v_rate
+  from public.system_settings where key = 'wallet_conversion_rate';
+
+  if v_rate is null or v_rate <= 0 then
+    return jsonb_build_object('status','FAILED','reason','RATE_NOT_CONFIGURED',
+      'reasonText','Conversions are not available yet - an administrator has not set the conversion rate.');
+  end if;
+
+  select coalesce((value #>> '{}')::numeric, 0) into v_fee_pct
+  from public.system_settings where key = 'wallet_conversion_fee_percent';
+  v_fee_pct := greatest(coalesce(v_fee_pct, 0), 0);
+
+  -- Serialises concurrent conversions for this member, so two requests cannot
+  -- both pass the balance check and overdraw the account.
+  select * into v_member from public.profiles where id = p_member for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND',
+      'reasonText','Member record not found');
+  end if;
+
+  -- A suspended or deactivated account cannot move balances.
+  perform public.kmd_assert_member_active(p_member, 'converting balances');
+
+  -- A resend of the same submission carries the same key and is recognised
+  -- instead of being applied a second time.
+  if v_key is not null then
+    select * into v_existing from public.wallet_conversions where idempotency_key = v_key limit 1;
+    if found then
+      return jsonb_build_object('status','DUPLICATE','reason','DUPLICATE_SUBMISSION',
+        'reference', v_existing.reference,
+        'direction', v_existing.direction,
+        'amountDeducted', v_existing.amount_deducted,
+        'amountCredited', v_existing.amount_credited,
+        'reasonText','This conversion was already processed, so nothing was moved again');
+    end if;
+  end if;
+
+  v_balances := public.kmd_member_balances(p_member);
+  v_points_available := coalesce((v_balances->>'availablePoints')::numeric, 0);
+  v_wallet_before := coalesce((v_balances->>'shoppingWallet')::numeric, 0);
+  v_points_before := coalesce((v_balances->>'availablePoints')::numeric, 0);
+
+  if v_direction = 'POINTS_TO_WALLET' and v_amount > v_points_available then
+    return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_POINTS',
+      'reasonText','That is more than your available Unilevel Points.',
+      'available', v_points_available, 'requested', v_amount);
+  end if;
+
+  if v_direction = 'WALLET_TO_POINTS' and v_amount > v_wallet_before then
+    return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_WALLET',
+      'reasonText','That is more than your Shopping Wallet balance.',
+      'available', v_wallet_before, 'requested', v_amount);
+  end if;
+
+  v_fee := round(v_amount * v_fee_pct / 100, 2);
+  v_net := v_amount - v_fee;
+
+  if v_net <= 0 then
+    return jsonb_build_object('status','FAILED','reason','AMOUNT_TOO_SMALL',
+      'reasonText','After the configured fee the amount to convert is zero. Enter a larger amount.');
+  end if;
+
+  -- Points to wallet multiplies by the rate; wallet to points is the inverse.
+  v_credited := case when v_direction = 'POINTS_TO_WALLET'
+                     then round(v_net * v_rate, 2)
+                     else round(v_net / v_rate, 2) end;
+
+  if v_credited <= 0 then
+    return jsonb_build_object('status','FAILED','reason','AMOUNT_TOO_SMALL',
+      'reasonText','That amount is too small to convert at the current rate.');
+  end if;
+
+  v_points_after := case when v_direction = 'POINTS_TO_WALLET'
+                         then v_points_before - v_amount
+                         else v_points_before + v_credited end;
+  v_wallet_after := case when v_direction = 'POINTS_TO_WALLET'
+                         then v_wallet_before + v_credited
+                         else v_wallet_before - v_amount end;
+
+  v_reference := 'KMD-CNV-' || lpad(nextval('public.kmd_conversion_seq')::text, 6, '0');
+
+  -- ---- one transaction: both ledger entries and both cached balances ----
+  if v_direction = 'POINTS_TO_WALLET' then
+    v_point_txn := 'KMD-PT-' || lpad(nextval('public.kmd_point_txn_seq')::text, 8, '0');
+    insert into public.point_ledger (
+      transaction_id, beneficiary_id, beneficiary_member_code, total_points,
+      reward_type, transaction_type, direction, status, trigger_event, posted_at,
+      processed_by, idempotency_key, note, is_test
+    ) values (
+      v_point_txn, p_member, v_member.member_code, v_amount,
+      'SHOPPING_WALLET_CONVERSION','SHOPPING_WALLET_CONVERSION','DEBIT','posted',
+      'wallet_conversion', now(), p_actor,
+      case when v_key is null then null else v_key || ':points' end,
+      'Converted to Shopping Wallet (' || v_reference || ')', v_member.is_test
+    ) returning id into v_point_ledger;
+
+    v_wallet_txn := 'KMD-WL-' || lpad(nextval('public.kmd_wallet_txn_seq')::text, 8, '0');
+    insert into public.shopping_wallet_ledger (
+      transaction_id, member_id, member_code, direction, amount, status,
+      source_point_ledger_id, trigger_event, posted_at, processed_by,
+      idempotency_key, note, is_test
+    ) values (
+      v_wallet_txn, p_member, v_member.member_code, 'CREDIT', v_credited, 'posted',
+      v_point_ledger, 'wallet_conversion', now(), p_actor,
+      case when v_key is null then null else v_key || ':wallet' end,
+      'Converted from Unilevel Points (' || v_reference || ')', v_member.is_test
+    ) returning id into v_wallet_ledger;
+  else
+    v_wallet_txn := 'KMD-WL-' || lpad(nextval('public.kmd_wallet_txn_seq')::text, 8, '0');
+    insert into public.shopping_wallet_ledger (
+      transaction_id, member_id, member_code, direction, amount, status,
+      trigger_event, posted_at, processed_by, idempotency_key, note, is_test
+    ) values (
+      v_wallet_txn, p_member, v_member.member_code, 'DEBIT', v_amount, 'posted',
+      'wallet_conversion', now(), p_actor,
+      case when v_key is null then null else v_key || ':wallet' end,
+      'Converted to Unilevel Points (' || v_reference || ')', v_member.is_test
+    ) returning id into v_wallet_ledger;
+
+    v_point_txn := 'KMD-PT-' || lpad(nextval('public.kmd_point_txn_seq')::text, 8, '0');
+    insert into public.point_ledger (
+      transaction_id, beneficiary_id, beneficiary_member_code, total_points,
+      reward_type, transaction_type, direction, status, trigger_event, posted_at,
+      processed_by, idempotency_key, note, is_test
+    ) values (
+      v_point_txn, p_member, v_member.member_code, v_credited,
+      'SHOPPING_WALLET_CONVERSION','SHOPPING_WALLET_CONVERSION','CREDIT','posted',
+      'wallet_conversion', now(), p_actor,
+      case when v_key is null then null else v_key || ':points' end,
+      'Converted from Shopping Wallet (' || v_reference || ')', v_member.is_test
+    ) returning id into v_point_ledger;
+  end if;
+
+  update public.profiles
+    set unilevel_points_balance = v_points_after,
+        shopping_wallet_balance = v_wallet_after
+    where id = p_member;
+
+  insert into public.wallet_conversions (
+    reference, member_id, member_code, direction, amount_deducted, amount_credited,
+    rate, fee_percent, fee_amount, points_balance_before, points_balance_after,
+    wallet_balance_before, wallet_balance_after, point_ledger_id, wallet_ledger_id,
+    idempotency_key, processed_by, is_test
+  ) values (
+    v_reference, p_member, v_member.member_code, v_direction, v_amount, v_credited,
+    v_rate, v_fee_pct, v_fee, v_points_before, v_points_after,
+    v_wallet_before, v_wallet_after, v_point_ledger, v_wallet_ledger,
+    v_key, p_actor, v_member.is_test
+  );
+
+  perform public.kmd_audit(p_actor, 'BALANCE_CONVERSION', p_member, null, 'wallet_conversions', v_reference,
+    jsonb_build_object('availablePoints', v_points_before, 'shoppingWallet', v_wallet_before),
+    jsonb_build_object('availablePoints', v_points_after, 'shoppingWallet', v_wallet_after,
+      'direction', v_direction, 'amountDeducted', v_amount, 'amountCredited', v_credited, 'rate', v_rate),
+    v_direction || ' conversion ' || v_reference, v_member.is_test);
+
+  return jsonb_build_object(
+    'status','CONVERTED',
+    'reference', v_reference,
+    'direction', v_direction,
+    'amountDeducted', v_amount,
+    'amountCredited', v_credited,
+    'rate', v_rate,
+    'feePercent', v_fee_pct,
+    'feeAmount', v_fee,
+    'pointsBalance', v_points_after,
+    'walletBalance', v_wallet_after,
+    'availablePoints', case when v_direction = 'WALLET_TO_POINTS' then v_points_after else v_points_after end,
+    'reasonText', case when v_direction = 'POINTS_TO_WALLET'
+      then 'Moved ' || v_amount || ' points into your Shopping Wallet as ' || v_credited || '.'
+      else 'Moved ' || v_amount || ' from your Shopping Wallet as ' || v_credited || ' points.' end);
+end $$;
+
+-- The single-direction converter now delegates, so an existing caller cannot
+-- bypass the rate, the fee or the record.
+create or replace function public.kmd_convert_to_wallet(p_member uuid, p_points numeric, p_actor uuid default null)
+returns jsonb
+language sql security definer set search_path = public as $$
+  select public.kmd_convert_balance(p_member, 'POINTS_TO_WALLET', p_points, p_actor, null);
+$$;
+
+revoke all on function public.kmd_convert_balance(uuid,text,numeric,uuid,text) from public, anon, authenticated;
+grant execute on function public.kmd_convert_balance(uuid,text,numeric,uuid,text) to service_role;

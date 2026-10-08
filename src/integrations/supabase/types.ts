@@ -4982,6 +4982,97 @@ export type Database = {
         }
         Relationships: []
       }
+      wallet_conversions: {
+        Row: {
+          amount_credited: number
+          amount_deducted: number
+          created_at: string
+          direction: string
+          fee_amount: number
+          fee_percent: number
+          id: string
+          idempotency_key: string | null
+          is_test: boolean
+          member_code: string
+          member_id: string
+          point_ledger_id: string | null
+          points_balance_after: number | null
+          points_balance_before: number | null
+          processed_by: string | null
+          rate: number
+          reference: string
+          status: string
+          wallet_balance_after: number | null
+          wallet_balance_before: number | null
+          wallet_ledger_id: string | null
+        }
+        Insert: {
+          amount_credited: number
+          amount_deducted: number
+          created_at?: string
+          direction: string
+          fee_amount?: number
+          fee_percent?: number
+          id?: string
+          idempotency_key?: string | null
+          is_test?: boolean
+          member_code: string
+          member_id: string
+          point_ledger_id?: string | null
+          points_balance_after?: number | null
+          points_balance_before?: number | null
+          processed_by?: string | null
+          rate: number
+          reference: string
+          status?: string
+          wallet_balance_after?: number | null
+          wallet_balance_before?: number | null
+          wallet_ledger_id?: string | null
+        }
+        Update: {
+          amount_credited?: number
+          amount_deducted?: number
+          created_at?: string
+          direction?: string
+          fee_amount?: number
+          fee_percent?: number
+          id?: string
+          idempotency_key?: string | null
+          is_test?: boolean
+          member_code?: string
+          member_id?: string
+          point_ledger_id?: string | null
+          points_balance_after?: number | null
+          points_balance_before?: number | null
+          processed_by?: string | null
+          rate?: number
+          reference?: string
+          status?: string
+          wallet_balance_after?: number | null
+          wallet_balance_before?: number | null
+          wallet_ledger_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "wallet_conversions_member_id_fkey"
+            columns: ["member_id"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_conversions_point_ledger_id_fkey"
+            columns: ["point_ledger_id"]
+            referencedRelation: "point_ledger"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "wallet_conversions_wallet_ledger_id_fkey"
+            columns: ["wallet_ledger_id"]
+            referencedRelation: "shopping_wallet_ledger"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -5155,6 +5246,16 @@ export type Database = {
           p_actor?: string
           p_order_id: string
           p_qualification_source?: string
+        }
+        Returns: Json
+      }
+      kmd_convert_balance: {
+        Args: {
+          p_actor: string
+          p_amount: number
+          p_direction: string
+          p_idempotency_key?: string
+          p_member: string
         }
         Returns: Json
       }

@@ -1,0 +1,15 @@
+-- Session cleanup.
+--
+-- 1. My verification set the conversion rate to 2. That must not be left active:
+--    the specified starting state is "disabled until an administrator sets it".
+--    A rate of 0 reads as unconfigured, so conversions are refused until the real
+--    rate is entered in Settings.
+update public.system_settings set value = '0'::jsonb, updated_at = now()
+ where key = 'wallet_conversion_rate';
+update public.system_settings set value = '0'::jsonb, updated_at = now()
+ where key = 'wallet_conversion_fee_percent';
+
+-- 2. Remove the temporary debugging elevation granted earlier in this session.
+delete from public.user_roles
+ where role = 'super_admin'
+   and user_id = (select id from public.profiles where username = 'testsponsor2');

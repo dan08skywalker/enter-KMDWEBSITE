@@ -1,0 +1,8 @@
+-- Reconciliation repair: bring the one affected cached balance back in line
+-- with its ledger. The ledger is the source of truth, so the cached column is
+-- corrected to it (not the other way round). One member was affected.
+update public.profiles
+   set unilevel_points_balance = coalesce((public.kmd_member_balances(id)->>'unilevelPoints')::numeric, 0),
+       shopping_wallet_balance = coalesce((public.kmd_member_balances(id)->>'shoppingWallet')::numeric, 0)
+ where unilevel_points_balance is distinct from coalesce((public.kmd_member_balances(id)->>'unilevelPoints')::numeric, 0)
+    or shopping_wallet_balance is distinct from coalesce((public.kmd_member_balances(id)->>'shoppingWallet')::numeric, 0);

@@ -19,6 +19,8 @@ interface EditableSetting {
   label: string;
   description: string;
   kind: "number" | "text";
+  /** Smallest accepted value for a number. Defaults to above zero. */
+  min?: number;
 }
 
 const EDITABLE: EditableSetting[] = [
@@ -27,18 +29,36 @@ const EDITABLE: EditableSetting[] = [
     label: "Point to peso rate",
     description: "Monetary value of one Unilevel point. Default 1 POINT = PHP 1.",
     kind: "number",
+    min: 0.01,
   },
   {
     key: "max_unilevel_levels",
     label: "Unilevel levels traced",
     description: "How many levels the reward engine walks up the sponsor chain. Default 5.",
     kind: "number",
+    min: 1,
   },
   {
     key: "currency_code",
     label: "Currency code",
     description: "Display currency for peso equivalents.",
     kind: "text",
+  },
+  {
+    key: "wallet_conversion_rate",
+    label: "Wallet conversion rate",
+    description:
+      "Shopping Wallet units received per 1 Unilevel point. Members convert at this rate in both directions (the reverse direction uses its inverse). Set 0 to keep conversions disabled.",
+    kind: "number",
+    min: 0,
+  },
+  {
+    key: "wallet_conversion_fee_percent",
+    label: "Wallet conversion fee (%)",
+    description:
+      "Percentage retained on each Shopping Wallet conversion. 0 means no fee. The fee is shown to the member before they confirm.",
+    kind: "number",
+    min: 0,
   },
 ];
 
@@ -72,13 +92,19 @@ export default function AdminSettings() {
 
   const save = async (setting: EditableSetting) => {
     const draft = drafts[setting.key] ?? "";
-    const value =
-      setting.kind === "number" ? Number(draft) : draft.trim() === "" ? null : draft;
+    const trimmed = draft.trim();
+    const minimum = setting.min ?? 0.01;
 
-    if (setting.kind === "number" && (!Number.isFinite(Number(draft)) || Number(draft) <= 0)) {
-      toast.error("Enter a number greater than zero");
+    if (setting.kind === "number" && (trimmed === "" || !Number.isFinite(Number(trimmed)) || Number(trimmed) < minimum)) {
+      toast.error(
+        minimum > 0
+          ? `Enter a number of at least ${minimum}`
+          : "Enter a number of zero or more",
+      );
       return;
     }
+
+    const value = setting.kind === "number" ? Number(trimmed) : trimmed === "" ? null : trimmed;
 
     setSavingKey(setting.key);
     const outcome = await invokeFunction("admin-actions", {
