@@ -43,5 +43,14 @@ export const LOYALTY_CARD_ART: Partial<Record<"classic" | "gold" | "platinum", s
   platinum: "/cards/platinum.webp",
 };
 
-/** Aspect ratio of the supplied covers (1583x993), which the card art follows. */
-export const LOYALTY_CARD_ASPECT = "aspect-[1.594/1]";
+/**
+ * Card proportions.
+ *
+ * The supplied covers are 1583x993 (1.594:1), but the card face has to hold an
+ * 18px title, the cardholder name and the details underneath. On a narrow screen
+ * the same 18px type needs more lines, so the frame is taller there - otherwise
+ * the last detail is cut off. The cover is anchored to its right edge, which
+ * means the crop comes out of the empty left background; the brand mark and the
+ * embossed leaves stay fully visible at every width.
+ */
+export const LOYALTY_CARD_ASPECT = "aspect-[1.15/1] sm:aspect-[1.3/1]";
