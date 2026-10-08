@@ -76,13 +76,11 @@ export function LoyaltyCard({
           src={art}
           alt=""
           decoding="async"
-          className="absolute inset-0 h-full w-full object-cover object-right"
+          className="absolute inset-0 h-full w-full object-cover"
         />
       ) : null}
 
-      {/* The title may use the full column width; the details below stay narrower
-          so they never reach the cover's embossed leaves. */}
-      <div className="relative flex h-full w-[66%] flex-col justify-between p-4 sm:w-[70%] sm:p-5">
+      <div className="relative flex h-full w-[58%] flex-col justify-between p-5">
         <div>
           <div className="flex items-center justify-between gap-2">
             <p className={cn("text-[10px] font-semibold uppercase tracking-[0.2em]", text.label)}>
@@ -92,33 +90,20 @@ export function LoyaltyCard({
               {status ?? "Active"}
             </span>
           </div>
-          <p
-            className={cn(
-              "mt-1 font-tahoma text-[18px] font-bold uppercase leading-[1.15] break-words",
-              text.value,
-            )}
-          >
+          <p className={cn("mt-1 text-sm font-bold tracking-tight", text.value)}>
             {tierLabel} Loyalty Card
           </p>
         </div>
 
-        <div className="w-[80%]">
-          {/* The captions are dropped on the narrowest cards, where the 18px title
-              and a long name need the room. The values themselves always show. */}
-          <p className={cn("max-sm:hidden text-[10px] font-semibold uppercase tracking-[0.18em]", text.label)}>
+        <div>
+          <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", text.label)}>
             Card holder
           </p>
-          {/* Uppercase is a display treatment only: the stored name is untouched. */}
-          <p
-            className={cn(
-              "mt-[2px] font-tahoma text-[14px] font-bold uppercase leading-tight break-words",
-              text.value,
-            )}
-          >
+          <p className={cn("mt-[2px] text-[18px] font-bold leading-tight tracking-tight", text.value)}>
             {memberName}
           </p>
 
-          <p className={cn("mt-2 max-sm:hidden text-[10px] font-semibold uppercase tracking-[0.18em]", text.label)}>
+          <p className={cn("mt-3 text-[10px] font-semibold uppercase tracking-[0.18em]", text.label)}>
             Card number
           </p>
           <p className={cn("mt-[2px] font-mono text-[16px] font-semibold leading-tight", text.value)}>
@@ -126,15 +111,13 @@ export function LoyaltyCard({
           </p>
         </div>
 
-        <div className="w-[80%]">
-          <div className="flex items-baseline gap-2">
-            <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", text.label)}>
-              Activated
-            </p>
-            <p className={cn("text-[13px] font-semibold", text.value)}>
-              {formatDate(activationDate)}
-            </p>
-          </div>
+        <div>
+          <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", text.label)}>
+            Activated
+          </p>
+          <p className={cn("mt-[2px] text-[13px] font-semibold", text.value)}>
+            {formatDate(activationDate)}
+          </p>
           <p className={cn("mt-1 font-mono text-[10px] tracking-wider", text.label)}>{memberCode}</p>
         </div>
       </div>

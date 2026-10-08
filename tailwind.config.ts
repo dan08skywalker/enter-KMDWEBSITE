@@ -22,9 +22,6 @@ export default {
 			fontFamily: {
 				sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
 				display: ['Sora', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
-				/* Loyalty card type. Tahoma is a system font, so sans-serif carries
-				   it wherever Tahoma is not installed. */
-				tahoma: ['Tahoma', 'sans-serif'],
 			},
 			colors: {
 				/* Brand anchors — usable directly where a semantic token does not fit */
