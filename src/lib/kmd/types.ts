@@ -177,6 +177,11 @@ export interface PointLedgerRow {
   trigger_event: string | null;
   created_at: string;
   posted_at: string | null;
+  /** The administrator who posted this entry, when it was a manual action. */
+  processed_by: string | null;
+  /** Unilevel points balance immediately before and after this entry. */
+  balance_before: number | null;
+  balance_after: number | null;
   note: string | null;
   is_test: boolean;
 }

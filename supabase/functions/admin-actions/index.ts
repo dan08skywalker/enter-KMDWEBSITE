@@ -323,12 +323,17 @@ Deno.serve(async (req) => {
       }
 
       case "adjust_points":
+        // The reason is deliberately not defaulted: the database refuses an
+        // adjustment without one, and it is stored on the ledger entry. The
+        // idempotency key makes a retried submission recognisable, so a double
+        // click cannot post the same adjustment twice.
         return run("kmd_adjust_points", {
           p_member: String(body?.memberId ?? ""),
           p_points: Number(body?.points ?? 0),
           p_direction: String(body?.direction ?? "CREDIT"),
-          p_reason: reason ?? "Administrative adjustment",
+          p_reason: reason,
           p_actor: actorId,
+          p_idempotency_key: body?.idempotencyKey ? String(body.idempotencyKey) : null,
         });
 
       case "adjust_loyalty_credits":

@@ -4137,6 +4137,8 @@ export type Database = {
       }
       point_ledger: {
         Row: {
+          balance_after: number | null
+          balance_before: number | null
           beneficiary_id: string
           beneficiary_member_code: string
           buyer_member_code: string | null
@@ -4166,6 +4168,8 @@ export type Database = {
           unilevel_level: number | null
         }
         Insert: {
+          balance_after?: number | null
+          balance_before?: number | null
           beneficiary_id: string
           beneficiary_member_code: string
           buyer_member_code?: string | null
@@ -4195,6 +4199,8 @@ export type Database = {
           unilevel_level?: number | null
         }
         Update: {
+          balance_after?: number | null
+          balance_before?: number | null
           beneficiary_id?: string
           beneficiary_member_code?: string
           buyer_member_code?: string | null
@@ -5267,6 +5273,7 @@ export type Database = {
         Args: {
           p_actor: string
           p_direction: string
+          p_idempotency_key?: string
           p_member: string
           p_points: number
           p_reason: string
@@ -5495,6 +5502,10 @@ export type Database = {
         Returns: number
       }
       kmd_member_balances: {
+        Args: { p_member: string }
+        Returns: Json
+      }
+      kmd_member_points_summary: {
         Args: { p_member: string }
         Returns: Json
       }

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Receipt, Undo2 } from "lucide-react";
+import { Coins, History, Receipt, Undo2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { invokeFunction } from "@/lib/kmd/invoke";
@@ -16,11 +16,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { PointAdjustmentPanel } from "./point-adjustment-panel";
 import { formatDateTime, formatPoints, toNumber } from "@/lib/kmd/format";
 import { ledgerStatus, transactionType } from "@/lib/kmd/labels";
 import { UNILEVEL_LEVELS } from "@/lib/kmd/constants";
 import type { PointLedgerRow } from "@/lib/kmd/types";
 
+/**
+ * Unilevel points in the administrator console, in one place.
+ *
+ * "Adjust Points" is the manual credit/debit control; "Transaction History" is the
+ * full point ledger, which is deliberately separate from loyalty credits.
+ */
 export default function AdminPointTransactions() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<PointLedgerRow[]>([]);
@@ -176,84 +184,113 @@ export default function AdminPointTransactions() {
   return (
     <>
       <PageHeader
-        title="Point Transactions"
-        description="The administrator view of the entire Point Ledger, including redemptions, conversions, adjustments and reversals."
+        title="Unilevel Points"
+        description="Adjust a member's Unilevel Points by hand, and review the full point ledger."
         actions={<ExportButton dataset="point_ledger" filters={{ search: search || null }} />}
       />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <Switch id="points-include-test" checked={includeTest} onCheckedChange={setIncludeTest} />
-        <Label htmlFor="points-include-test" className="cursor-pointer text-xs">
-          Include test data
-        </Label>
-      </div>
+      <Tabs defaultValue="adjust">
+        <TabsList>
+          <TabsTrigger value="adjust">
+            <Coins className="mr-1.5 h-3.5 w-3.5" />
+            Adjust Points
+          </TabsTrigger>
+          <TabsTrigger value="history">
+            <History className="mr-1.5 h-3.5 w-3.5" />
+            Transaction History
+          </TabsTrigger>
+        </TabsList>
 
-      <FilterBar className="flex-wrap">
-        <SearchInput value={search} onChange={setSearch} placeholder="Search transaction, order, member or SKU" />
-        <div className="flex items-end gap-2">
-          <div className="space-y-1">
-            <Label htmlFor="points-from" className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              From
-            </Label>
-            <Input id="points-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="w-[150px]" />
+        <TabsContent value="adjust" className="mt-4">
+          <PointAdjustmentPanel />
+        </TabsContent>
+
+        <TabsContent value="history" className="mt-4 space-y-4">
+          <div className="kmd-panel border-dashed p-4">
+            <p className="text-xs text-muted-foreground">
+              Every Unilevel point movement lives in this ledger: purchase bonuses from Levels 1 to 5,
+              redemptions, Shopping Wallet conversions, manual administrative adjustments and
+              reversals. Ledger rows are never edited — a correction is written as a new reversal
+              entry, and each manual adjustment records the balance it started from and the balance it
+              produced.
+            </p>
           </div>
-          <div className="space-y-1">
-            <Label htmlFor="points-to" className="text-[11px] uppercase tracking-wider text-muted-foreground">
-              To
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Switch id="points-include-test" checked={includeTest} onCheckedChange={setIncludeTest} />
+            <Label htmlFor="points-include-test" className="cursor-pointer text-xs">
+              Include test data
             </Label>
-            <Input id="points-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} className="w-[150px]" />
           </div>
-        </div>
-        <SelectFilter
-          value={level}
-          onChange={setLevel}
-          allLabel="All levels"
-          options={UNILEVEL_LEVELS.map((value) => ({ value: String(value), label: `Level ${value}` }))}
-        />
-        <SelectFilter
-          value={type}
-          onChange={setType}
-          allLabel="All types"
-          options={[
-            { value: "UNILEVEL_BONUS", label: "Unilevel Bonus" },
-            { value: "REDEMPTION", label: "Redemption" },
-            { value: "SHOPPING_WALLET_CONVERSION", label: "Wallet Conversion" },
-            { value: "ADMIN_ADJUSTMENT", label: "Admin Adjustment" },
-            { value: "REVERSAL", label: "Reversal" },
-          ]}
-          className="sm:w-[190px]"
-        />
-        <SelectFilter
-          value={status}
-          onChange={setStatus}
-          allLabel="All statuses"
-          options={[
-            { value: "posted", label: "Posted" },
-            { value: "pending", label: "Held" },
-            { value: "reversed", label: "Reversed" },
-          ]}
-        />
-      </FilterBar>
 
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
-        <span>
-          <span className="font-semibold text-foreground">{filtered.length}</span> rows
-        </span>
-        <span>
-          Credits <span className="font-semibold text-[hsl(var(--success))]">{formatPoints(totals.credits)}</span>
-        </span>
-        <span>
-          Debits <span className="font-semibold text-destructive">{formatPoints(totals.debits)}</span>
-        </span>
-      </div>
+          <FilterBar className="flex-wrap">
+            <SearchInput value={search} onChange={setSearch} placeholder="Search transaction, order, member or SKU" />
+            <div className="flex items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="points-from" className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  From
+                </Label>
+                <Input id="points-from" type="date" value={from} onChange={(event) => setFrom(event.target.value)} className="w-[150px]" />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="points-to" className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  To
+                </Label>
+                <Input id="points-to" type="date" value={to} onChange={(event) => setTo(event.target.value)} className="w-[150px]" />
+              </div>
+            </div>
+            <SelectFilter
+              value={level}
+              onChange={setLevel}
+              allLabel="All levels"
+              options={UNILEVEL_LEVELS.map((value) => ({ value: String(value), label: `Level ${value}` }))}
+            />
+            <SelectFilter
+              value={type}
+              onChange={setType}
+              allLabel="All types"
+              options={[
+                { value: "UNILEVEL_BONUS", label: "Unilevel Bonus" },
+                { value: "REDEMPTION", label: "Redemption" },
+                { value: "SHOPPING_WALLET_CONVERSION", label: "Wallet Conversion" },
+                { value: "ADMIN_ADJUSTMENT", label: "Admin Adjustment" },
+                { value: "REVERSAL", label: "Reversal" },
+              ]}
+              className="sm:w-[190px]"
+            />
+            <SelectFilter
+              value={status}
+              onChange={setStatus}
+              allLabel="All statuses"
+              options={[
+                { value: "posted", label: "Posted" },
+                { value: "pending", label: "Held" },
+                { value: "reversed", label: "Reversed" },
+              ]}
+            />
+          </FilterBar>
 
-      <DataTable
-        columns={columns}
-        rows={filtered}
-        rowKey={(row) => row.id}
-        loading={loading}
-        empty={<EmptyState icon={Receipt} title="No ledger rows" description="No point activity matches these filters." />}
-      />
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
+            <span>
+              <span className="font-semibold text-foreground">{filtered.length}</span> rows
+            </span>
+            <span>
+              Credits <span className="font-semibold text-[hsl(var(--success))]">{formatPoints(totals.credits)}</span>
+            </span>
+            <span>
+              Debits <span className="font-semibold text-destructive">{formatPoints(totals.debits)}</span>
+            </span>
+          </div>
+
+          <DataTable
+            columns={columns}
+            rows={filtered}
+            rowKey={(row) => row.id}
+            loading={loading}
+            empty={<EmptyState icon={Receipt} title="No ledger rows" description="No point activity matches these filters." />}
+          />
+        </TabsContent>
+      </Tabs>
     </>
   );
 }

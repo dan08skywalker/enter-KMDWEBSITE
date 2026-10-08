@@ -1,0 +1,23 @@
+-- A read-only balance summary for one member, derived from the ledger.
+--
+-- The general balance function is service-role only, so the administrator console
+-- cannot call it from the browser. This narrow wrapper exposes the same figures
+-- to a signed-in caller who is either that member or an administrator, and to
+-- nobody else.
+create or replace function public.kmd_member_points_summary(p_member uuid)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if auth.uid() is null then
+    return null;
+  end if;
+
+  if p_member is distinct from auth.uid() and not public.kmd_is_admin(auth.uid()) then
+    return null;
+  end if;
+
+  return public.kmd_member_balances(p_member);
+end $$;
+
+revoke all on function public.kmd_member_points_summary(uuid) from public, anon;
+grant execute on function public.kmd_member_points_summary(uuid) to authenticated;

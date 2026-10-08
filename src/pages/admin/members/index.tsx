@@ -42,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDate, formatPoints } from "@/lib/kmd/format";
+import { formatDate, formatPoints, toNumber } from "@/lib/kmd/format";
 import { accountStatus, packageTier } from "@/lib/kmd/labels";
 import type { MembershipPackage, Profile } from "@/lib/kmd/types";
 
@@ -89,6 +89,7 @@ export default function AdminMembers() {
   const [sponsorResults, setSponsorResults] = useState<Profile[]>([]);
   const [sponsorId, setSponsorId] = useState("");
   const [adjustPoints, setAdjustPoints] = useState("");
+  const [adjustKey, setAdjustKey] = useState<string | null>(null);
   const [direction, setDirection] = useState("CREDIT");
   const [reconcile, setReconcile] = useState<ReconcileResult | null>(null);
   const [memberStatus, setMemberStatus] = useState("inactive");
@@ -150,6 +151,8 @@ export default function AdminMembers() {
     setSponsorResults([]);
     setSponsorId(member.direct_sponsor_id ?? "");
     setAdjustPoints("");
+    // One key per opened dialog, so a resend is recognised instead of posted twice.
+    setAdjustKey(crypto.randomUUID());
     setDirection("CREDIT");
     setReconcile(null);
     setMemberStatus(presetStatus ?? (member.account_status === "active" ? "suspended" : "active"));
@@ -244,6 +247,7 @@ export default function AdminMembers() {
             points: Number(adjustPoints),
             direction,
             reason,
+            idempotencyKey: adjustKey,
           },
           "Adjustment posted",
         );
@@ -620,9 +624,28 @@ export default function AdminMembers() {
                   placeholder="Recorded on the audit log and on the ledger entry"
                 />
               </div>
+              <dl className="space-y-2 rounded-lg bg-muted/40 p-3 text-xs">
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Unilevel points</dt>
+                  <dd className="font-semibold tabular-nums">
+                    {formatPoints(member.unilevel_points_balance)}
+                  </dd>
+                </div>
+                <div className="flex justify-between border-t pt-2">
+                  <dt className="text-muted-foreground">Resulting balance</dt>
+                  <dd className="font-bold tabular-nums">
+                    {formatPoints(
+                      direction === "CREDIT"
+                        ? toNumber(member.unilevel_points_balance) + Number(adjustPoints || 0)
+                        : toNumber(member.unilevel_points_balance) - Number(adjustPoints || 0),
+                    )}
+                  </dd>
+                </div>
+              </dl>
               <p className="text-xs text-muted-foreground">
-                An adjustment is written as a new ADMIN_ADJUSTMENT ledger entry. Existing history is
-                never edited.
+                An adjustment is written as a new ADMIN_ADJUSTMENT ledger entry that records the
+                previous and resulting balance. Existing history is never edited, and a deduction can
+                never exceed the member's available points.
               </p>
             </div>
           ) : null}
