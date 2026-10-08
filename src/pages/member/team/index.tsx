@@ -223,7 +223,7 @@ export default function MemberTeam() {
       </section>
 
       <section className="space-y-4">
-        <h2 className="text-base font-semibold">My downline by level</h2>
+        <h2 className="text-base font-semibold">My Team by level</h2>
         {byLevel.map((group) => (
           <div key={group.level} className="kmd-panel">
             <div className="flex items-center justify-between border-b px-5 py-3">
