@@ -41,7 +41,10 @@ export interface Profile {
   last_name: string;
   full_name: string;
   mobile_number: string | null;
+  /** Login email. Kept in step with the authentication account and used to sign in. */
   email: string;
+  /** Optional contact address. Has no effect on signing in. */
+  contact_email: string | null;
   sponsor_code: string | null;
   direct_sponsor_id: string | null;
   package_id: string | null;

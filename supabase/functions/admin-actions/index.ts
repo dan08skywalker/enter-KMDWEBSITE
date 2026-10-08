@@ -190,6 +190,138 @@ Deno.serve(async (req) => {
         return json({ ok: true, result: { ...data, signInRemoved } });
       }
 
+      case "member_details": {
+        // The login address lives on the authentication account, not in the
+        // profile, so the edit form needs both to show the difference.
+        const memberId = String(body?.memberId ?? "");
+        const { data: profile, error: profileError } = await svc
+          .from("profiles")
+          .select("id, member_code, first_name, last_name, full_name, mobile_number, email, contact_email, account_status, is_test")
+          .eq("id", memberId)
+          .maybeSingle();
+
+        if (profileError) {
+          console.error("admin-actions member_details failed:", profileError.message);
+          return json({ error: "MEMBER_LOOKUP_FAILED", message: "Could not load the member record" }, 500);
+        }
+        if (!profile) {
+          return json({ error: "MEMBER_NOT_FOUND", message: "Member record not found" }, 404);
+        }
+
+        const { data: authUser, error: authError } = await svc.auth.admin.getUserById(memberId);
+        if (authError) {
+          console.error("admin-actions member_details could not read the login account:", authError.message);
+        }
+
+        return json({
+          ok: true,
+          result: {
+            profile,
+            loginEmail: authUser?.user?.email ?? null,
+            loginEmailConfirmedAt: authUser?.user?.email_confirmed_at ?? null,
+            loginEmailMatchesProfile: (authUser?.user?.email ?? null) === profile.email,
+          },
+        });
+      }
+
+      case "update_member_details": {
+        const memberId = String(body?.memberId ?? "");
+        const wantsLoginEmailChange = body?.changeLoginEmail === true;
+        const newLoginEmail = String(body?.loginEmail ?? "").trim().toLowerCase();
+
+        if (wantsLoginEmailChange && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newLoginEmail)) {
+          return json({ error: "INVALID_LOGIN_EMAIL", message: "Enter a valid login email address" }, 400);
+        }
+
+        // 1. Names, phone, contact address and the displayed member ID, in one
+        //    audited database transaction.
+        const { data, error } = await svc.rpc("kmd_admin_update_member_details", {
+          p_member: memberId,
+          p_actor: actorId,
+          p_first_name: body?.firstName ?? null,
+          p_last_name: body?.lastName ?? null,
+          p_mobile: body?.mobile ?? null,
+          p_contact_email: body?.contactEmail ?? null,
+          p_member_code: body?.memberCode ?? null,
+        });
+
+        if (error) {
+          console.error("admin-actions update_member_details failed:", error.message);
+          return json({ error: "ACTION_FAILED", message: error.message.replace(/^[A-Z_]+:\s*/, "") }, 400);
+        }
+        if (data?.status === "FAILED") {
+          return json({ ok: false, result: data });
+        }
+
+        // 2. The login email is a change to the authentication account, so it goes
+        //    through the provider's admin API rather than the profile table.
+        let loginEmail: Record<string, unknown> = { requested: false };
+        if (wantsLoginEmailChange) {
+          const { data: before } = await svc.auth.admin.getUserById(memberId);
+          const previousLoginEmail = before?.user?.email ?? null;
+
+          const { data: updated, error: authError } = await svc.auth.admin.updateUserById(memberId, {
+            email: newLoginEmail,
+            // Confirmed immediately, matching how registration works, so the
+            // member is never locked out waiting on a mail round-trip.
+            email_confirm: true,
+          });
+
+          if (authError) {
+            console.error("admin-actions login email change failed:", authError.message);
+            loginEmail = {
+              requested: true,
+              changed: false,
+              previousLoginEmail,
+              reason: authError.message,
+            };
+            await svc.rpc("kmd_audit", {
+              p_actor: actorId,
+              p_action: "LOGIN_EMAIL_CHANGE_FAILED",
+              p_target_member: memberId,
+              p_entity: "auth.users",
+              p_entity_id: memberId,
+              p_previous: { email: previousLoginEmail },
+              p_new: { email: newLoginEmail },
+              p_reason: "Login email change failed: " + authError.message,
+            });
+          } else {
+            // Sign-in resolves a username through profiles.email, so the profile
+            // address has to move with the account or the member cannot sign in.
+            const { error: syncError } = await svc
+              .from("profiles")
+              .update({ email: newLoginEmail })
+              .eq("id", memberId);
+
+            if (syncError) {
+              console.error("admin-actions login email changed but the profile address did not:", syncError.message);
+            }
+
+            loginEmail = {
+              requested: true,
+              changed: true,
+              previousLoginEmail,
+              loginEmail: updated?.user?.email ?? newLoginEmail,
+              profileSynced: !syncError,
+            };
+
+            await svc.rpc("kmd_audit", {
+              p_actor: actorId,
+              p_action: "LOGIN_EMAIL_CHANGE",
+              p_target_member: memberId,
+              p_entity: "auth.users",
+              p_entity_id: memberId,
+              p_previous: { email: previousLoginEmail },
+              p_new: { email: newLoginEmail, profileSynced: !syncError },
+              p_reason: "Login email changed by administrator" + (syncError ? " - profile address NOT synced" : ""),
+            });
+          }
+        }
+
+        console.log("admin-actions update_member_details ->", data?.memberCode, "loginEmail:", loginEmail);
+        return json({ ok: true, result: { ...data, loginEmail } });
+      }
+
       case "adjust_points":
         return run("kmd_adjust_points", {
           p_member: String(body?.memberId ?? ""),

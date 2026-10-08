@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Loader2, MoreHorizontal, RefreshCw, Search, Trash2, UserRoundX, UserRoundCheck, Users } from "lucide-react";
+import { Loader2, MoreHorizontal, RefreshCw, Search, Trash2, UserRoundCog, UserRoundX, UserRoundCheck, Users } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { MemberCell } from "@/components/kmd/member-cell";
 import { FilterBar, SearchInput, SelectFilter } from "@/components/kmd/filter-bar";
+import { MemberDetailsDialog } from "./member-details-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -92,6 +93,7 @@ export default function AdminMembers() {
   const [reconcile, setReconcile] = useState<ReconcileResult | null>(null);
   const [memberStatus, setMemberStatus] = useState("inactive");
   const [confirmCode, setConfirmCode] = useState("");
+  const [detailsMember, setDetailsMember] = useState<Profile | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -345,6 +347,10 @@ export default function AdminMembers() {
             <DropdownMenuItem onSelect={() => openAction("account_type", row)}>Set account type</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => openAction("role", row)}>Grant role</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => openAction("sponsor", row)}>Change sponsor</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setDetailsMember(row)}>
+              <UserRoundCog className="h-3.5 w-3.5" />
+              Edit member details
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => openAction("adjust", row)}>Adjust points</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => openAction("reconcile", row)}>
@@ -769,6 +775,14 @@ export default function AdminMembers() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <MemberDetailsDialog
+        member={detailsMember}
+        onOpenChange={(open) => {
+          if (!open) setDetailsMember(null);
+        }}
+        onSaved={() => void load()}
+      />
     </>
   );
 }

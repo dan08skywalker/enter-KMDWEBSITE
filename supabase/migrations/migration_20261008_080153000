@@ -1,0 +1,177 @@
+-- ============================================================
+-- KMD EMPIRE · migration 12 · admin edit of member details
+--
+-- Two facts shape this design:
+--
+--   1. profiles.email IS the login email. Sign-in resolves a username through
+--      kmd_resolve_login, which returns profiles.email, and the auth account is
+--      keyed on that same address. Editing profiles.email on its own would lock
+--      the member out of their own account. So the contact address gets its own
+--      column and the two are edited by different paths.
+--
+--   2. member_code is denormalised into 12 columns across 10 tables. The real
+--      relationships (genealogy, sponsorship) use uuids and are untouched. The
+--      one LIVE reference to a member's code is profiles.sponsor_code on their
+--      downline, which is re-pointed here. Historical rows (orders, ledgers,
+--      audit) keep the code as recorded at the time, so no financial record is
+--      rewritten.
+-- ============================================================
+
+-- Contact address, separate from the login email.
+alter table public.profiles
+  add column if not exists contact_email text;
+
+comment on column public.profiles.email is
+  'Login email. Kept in step with the authentication account and used to sign in.';
+comment on column public.profiles.contact_email is
+  'Optional contact address. Has no effect on signing in.';
+
+-- Guard against case-variant duplicates of a member code. The existing data has
+-- none (checked before adding this).
+create unique index if not exists profiles_member_code_upper_idx
+  on public.profiles (upper(member_code));
+
+-- ---------- the edit ----------
+create or replace function public.kmd_admin_update_member_details(
+  p_member uuid,
+  p_actor uuid,
+  p_first_name text,
+  p_last_name text,
+  p_mobile text,
+  p_contact_email text,
+  p_member_code text
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_first text := nullif(trim(coalesce(p_first_name, '')), '');
+  v_last text := nullif(trim(coalesce(p_last_name, '')), '');
+  v_mobile text := nullif(trim(coalesce(p_mobile, '')), '');
+  v_contact text := nullif(trim(coalesce(p_contact_email, '')), '');
+  v_new_code text := nullif(upper(trim(coalesce(p_member_code, ''))), '');
+  v_digits text;
+  v_number bigint;
+  v_seq_last bigint;
+  v_seq_called boolean;
+  v_moved int := 0;
+  v_old jsonb;
+  v_new jsonb;
+  v_changed text[] := '{}';
+begin
+  select * into v_member from public.profiles where id = p_member for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND',
+      'reasonText','Member record not found');
+  end if;
+
+  -- ---- validation ----
+  if v_first is null or v_last is null then
+    return jsonb_build_object('status','FAILED','reason','NAME_REQUIRED',
+      'reasonText','First name and last name are required');
+  end if;
+  if length(v_first) > 80 or length(v_last) > 80 then
+    return jsonb_build_object('status','FAILED','reason','NAME_TOO_LONG',
+      'reasonText','Names must be 80 characters or fewer');
+  end if;
+  if v_mobile is not null and v_mobile !~ '^[0-9+\-\s()]{7,20}$' then
+    return jsonb_build_object('status','FAILED','reason','INVALID_MOBILE',
+      'reasonText','That mobile number is not in a recognised format');
+  end if;
+  if v_contact is not null and v_contact !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+    return jsonb_build_object('status','FAILED','reason','INVALID_CONTACT_EMAIL',
+      'reasonText','That contact email address is not valid');
+  end if;
+
+  -- ---- member code ----
+  if v_new_code is not null and v_new_code <> upper(v_member.member_code) then
+    if v_new_code !~ '^KMD-[0-9]{4}-[0-9]{4}-[0-9]{4}-[0-9]{4}$' then
+      return jsonb_build_object('status','FAILED','reason','INVALID_MEMBER_CODE_FORMAT',
+        'reasonText','A member ID must look like KMD-0000-0000-0000-0000 (the KMD prefix followed by four groups of four digits)');
+    end if;
+
+    if exists (
+      select 1 from public.profiles
+      where upper(member_code) = v_new_code and id <> p_member
+    ) then
+      return jsonb_build_object('status','FAILED','reason','MEMBER_CODE_TAKEN',
+        'reasonText','Member ID ' || v_new_code || ' is already used by another member');
+    end if;
+
+    -- Never let a future automatic assignment collide with a code an
+    -- administrator chose by hand: if the chosen number is at or above the
+    -- sequence's last issued value, move the sequence past it.
+    v_digits := regexp_replace(v_new_code, '[^0-9]', '', 'g');
+    v_number := v_digits::bigint;
+
+    select last_value, is_called into v_seq_last, v_seq_called
+    from public.kmd_member_code_seq;
+
+    if v_seq_called and v_number > v_seq_last then
+      perform setval('public.kmd_member_code_seq', v_number, true);
+    end if;
+
+    update public.profiles
+      set sponsor_code = v_new_code
+      where sponsor_code = v_member.member_code
+        and id <> p_member;
+    get diagnostics v_moved = row_count;
+  end if;
+
+  -- ---- apply, restricted to the fields an administrator may edit ----
+  v_old := jsonb_build_object(
+    'firstName', v_member.first_name,
+    'lastName', v_member.last_name,
+    'fullName', v_member.full_name,
+    'mobileNumber', v_member.mobile_number,
+    'contactEmail', v_member.contact_email,
+    'memberCode', v_member.member_code);
+
+  update public.profiles
+    set first_name = v_first,
+        last_name = v_last,
+        mobile_number = v_mobile,
+        contact_email = v_contact,
+        member_code = coalesce(v_new_code, v_member.member_code)
+    where id = p_member
+    returning * into v_member;
+
+  v_new := jsonb_build_object(
+    'firstName', v_member.first_name,
+    'lastName', v_member.last_name,
+    'fullName', v_member.full_name,
+    'mobileNumber', v_member.mobile_number,
+    'contactEmail', v_member.contact_email,
+    'memberCode', v_member.member_code);
+
+  if v_old->>'firstName' is distinct from v_new->>'firstName' then v_changed := v_changed || 'firstName'; end if;
+  if v_old->>'lastName' is distinct from v_new->>'lastName' then v_changed := v_changed || 'lastName'; end if;
+  if v_old->>'mobileNumber' is distinct from v_new->>'mobileNumber' then v_changed := v_changed || 'mobileNumber'; end if;
+  if v_old->>'contactEmail' is distinct from v_new->>'contactEmail' then v_changed := v_changed || 'contactEmail'; end if;
+  if v_old->>'memberCode' is distinct from v_new->>'memberCode' then v_changed := v_changed || 'memberCode'; end if;
+
+  if array_length(v_changed, 1) is null then
+    return jsonb_build_object('status','UNCHANGED','memberId', p_member,
+      'reasonText','No details were changed');
+  end if;
+
+  perform public.kmd_audit(p_actor, 'MEMBER_DETAILS_UPDATE', p_member, null, 'profiles', p_member::text,
+    v_old, v_new,
+    'Admin edited member details: ' || array_to_string(v_changed, ', ')
+      || case when array_length(v_changed, 1) is not null and 'memberCode' = any(v_changed)
+              then ' (downline sponsor references re-pointed: ' || v_moved || ')' else '' end,
+    v_member.is_test);
+
+  return jsonb_build_object(
+    'status','UPDATED',
+    'memberId', p_member,
+    'memberCode', v_member.member_code,
+    'fullName', v_member.full_name,
+    'changed', to_jsonb(v_changed),
+    'downlineReferencesRepointed', v_moved,
+    'previous', v_old,
+    'current', v_new,
+    'reasonText','Member details updated');
+end $$;
+
+revoke all on function public.kmd_admin_update_member_details(uuid,uuid,text,text,text,text,text) from public, anon, authenticated;
+grant execute on function public.kmd_admin_update_member_details(uuid,uuid,text,text,text,text,text) to service_role;

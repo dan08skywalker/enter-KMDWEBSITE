@@ -4339,6 +4339,7 @@ export type Database = {
           account_status: string
           account_type: string
           activation_date: string | null
+          contact_email: string | null
           created_at: string
           direct_sponsor_id: string | null
           email: string
@@ -4365,6 +4366,7 @@ export type Database = {
           account_status?: string
           account_type?: string
           activation_date?: string | null
+          contact_email?: string | null
           created_at?: string
           direct_sponsor_id?: string | null
           email: string
@@ -4391,6 +4393,7 @@ export type Database = {
           account_status?: string
           account_type?: string
           activation_date?: string | null
+          contact_email?: string | null
           created_at?: string
           direct_sponsor_id?: string | null
           email?: string
@@ -5051,6 +5054,18 @@ export type Database = {
           p_priority?: string
           p_status?: string
           p_ticket_id: string
+        }
+        Returns: Json
+      }
+      kmd_admin_update_member_details: {
+        Args: {
+          p_actor: string
+          p_contact_email: string
+          p_first_name: string
+          p_last_name: string
+          p_member: string
+          p_member_code: string
+          p_mobile: string
         }
         Returns: Json
       }

@@ -1,0 +1,21 @@
+-- Session cleanup, two parts.
+--
+-- 1. Remove the temporary debugging elevation granted earlier.
+delete from public.user_roles
+ where role = 'super_admin'
+   and user_id = (select id from public.profiles where username = 'testsponsor2');
+
+-- 2. The ID-change test deliberately used KMD-0000-0000-0000-0100 to prove the
+--    sequence is moved past a hand-picked number. That test member is deleted, so
+--    restore the numbering to the highest code actually in use and keep new
+--    member IDs contiguous. Setting it to max(existing) guarantees the next
+--    automatic code is max+1 and cannot collide with any current member.
+select setval(
+  'public.kmd_member_code_seq',
+  greatest(
+    (select coalesce(max((regexp_replace(member_code, '[^0-9]', '', 'g'))::bigint), 1)
+       from public.profiles),
+    1
+  ),
+  true
+);
