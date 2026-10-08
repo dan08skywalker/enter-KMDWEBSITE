@@ -118,7 +118,6 @@ export function LoyaltyCard({
           <p className={cn("mt-[2px] text-[13px] font-semibold", text.value)}>
             {formatDate(activationDate)}
           </p>
-          <p className={cn("mt-1 font-mono text-[10px] tracking-wider", text.label)}>{memberCode}</p>
         </div>
       </div>
     </div>
