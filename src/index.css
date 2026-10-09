@@ -277,3 +277,32 @@ body,
 html {
   scroll-behavior: smooth;
 }
+
+/* ---------------------------------------------------------------------------
+   Sign-in page. Scoped to the login screen: the green-and-white card, the
+   nature panel and the brand call-to-action. Nothing here is used elsewhere.
+   --------------------------------------------------------------------------- */
+.kmd-login-card {
+  box-shadow:
+    0 1px 2px hsl(var(--primary) / 0.06),
+    0 24px 60px -24px hsl(var(--primary) / 0.28);
+}
+
+.kmd-login-panel {
+  background-image:
+    radial-gradient(120% 90% at 12% 8%, hsl(140 70% 92%) 0%, transparent 55%),
+    radial-gradient(90% 70% at 85% 92%, hsl(155 55% 88%) 0%, transparent 60%),
+    linear-gradient(160deg, hsl(140 45% 97%) 0%, hsl(160 40% 94%) 100%);
+}
+
+.kmd-login-cta {
+  background-image: linear-gradient(90deg, hsl(148 72% 20%) 0%, hsl(96 62% 40%) 100%);
+}
+
+.kmd-login-cta:hover {
+  background-image: linear-gradient(90deg, hsl(148 72% 17%) 0%, hsl(96 62% 36%) 100%);
+}
+
+.kmd-login-strip {
+  background-image: linear-gradient(90deg, hsl(152 62% 12%) 0%, hsl(150 55% 16%) 100%);
+}
