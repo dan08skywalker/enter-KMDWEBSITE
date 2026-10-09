@@ -41,6 +41,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate, formatDateTime, formatPeso } from "@/lib/kmd/format";
 import { orderStatus, paymentMethod, walletPaymentStatus } from "@/lib/kmd/labels";
+import { pricingCategoryLabel } from "@/lib/kmd/pricing-labels";
 import type { Order, OrderItem, PaymentProof, PointLedgerRow, WalletPayment } from "@/lib/kmd/types";
 
 const MAX_PROOF_BYTES = 6 * 1024 * 1024;
@@ -501,6 +502,7 @@ export default function MemberOrderDetail() {
                 <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Qty</TableHead>
                 <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Unit price</TableHead>
                 <TableHead className="text-right text-[11px] uppercase tracking-wider text-muted-foreground">Line total</TableHead>
+                <TableHead className="text-[11px] uppercase tracking-wider text-muted-foreground">Pricing</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -511,6 +513,15 @@ export default function MemberOrderDetail() {
                   <TableCell className="text-right">{item.quantity}</TableCell>
                   <TableCell className="text-right">{formatPeso(item.unit_price)}</TableCell>
                   <TableCell className="text-right font-medium">{formatPeso(item.line_total)}</TableCell>
+                  <TableCell className="text-xs">
+                    {item.pricing_category ? (
+                      <span className="font-semibold text-accent">
+                        {pricingCategoryLabel(item.pricing_category)}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Published price</span>
+                    )}
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

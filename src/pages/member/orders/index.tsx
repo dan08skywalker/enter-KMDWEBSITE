@@ -14,6 +14,9 @@ import { FilterBar, SelectFilter } from "@/components/kmd/filter-bar";
 import { CourierTrackingCell } from "@/components/kmd/courier-tracking";
 import { useDigitalProductIds } from "@/hooks/use-digital-products";
 import { isDigitalOnlyOrder } from "@/lib/kmd/courier";
+import { useMemberPricingContext } from "@/contexts/member-pricing-context";
+import { memberPriceLabel } from "@/lib/kmd/pricing-labels";
+import { MemberPriceChip } from "@/components/site/member-price-chip";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -58,6 +61,7 @@ export default function MemberOrders() {
   const [quantity, setQuantity] = useState("1");
   const [creating, setCreating] = useState(false);
   const digitalProductIds = useDigitalProductIds();
+  const pricing = useMemberPricingContext();
 
   const load = async () => {
     if (!user) return;
@@ -109,6 +113,12 @@ export default function MemberOrders() {
 
   const selectedProduct = products.find((product) => product.id === productId);
   const requestedQuantity = Math.max(1, Number(quantity) || 1);
+  // The member price is what the server will charge for this buyer; the published
+  // price stays visible as the reference.
+  const selectedMemberPrice = pricing.priceFor(selectedProduct?.sku);
+  const selectedUnitPrice = selectedMemberPrice
+    ? selectedMemberPrice.price
+    : (selectedProduct?.selling_price ?? 0);
 
   const createOrder = async () => {
     if (!productId) {
@@ -180,7 +190,17 @@ export default function MemberOrders() {
     {
       key: "amount",
       header: "Amount",
-      cell: (row) => formatPeso(row.total_amount),
+      cell: (row) => {
+        const memberPriced = (row.order_items ?? []).some((item) => item.pricing_category);
+        return (
+          <div className="flex flex-col items-end">
+            <span className="tabular-nums">{formatPeso(row.total_amount)}</span>
+            {memberPriced ? (
+              <span className="text-[10px] font-semibold text-accent">Member price</span>
+            ) : null}
+          </div>
+        );
+      },
       className: "text-right",
     },
     {
@@ -254,14 +274,26 @@ export default function MemberOrders() {
 
                 {selectedProduct ? (
                   <div className="rounded-lg bg-muted/40 p-3 text-xs">
+                    {selectedMemberPrice ? (
+                      <div className="mb-2">
+                        <MemberPriceChip label={memberPriceLabel(selectedMemberPrice.category)} />
+                      </div>
+                    ) : null}
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Unit price</span>
-                      <span className="font-semibold">{formatPeso(selectedProduct.selling_price)}</span>
+                      <span className="flex items-center gap-2 font-semibold">
+                        {selectedMemberPrice ? (
+                          <span className="kmd-price-strike">
+                            {formatPeso(selectedProduct.selling_price)}
+                          </span>
+                        ) : null}
+                        {formatPeso(selectedUnitPrice)}
+                      </span>
                     </div>
                     <div className="mt-1 flex justify-between">
                       <span className="text-muted-foreground">Order total</span>
                       <span className="font-semibold">
-                        {formatPeso(selectedProduct.selling_price * requestedQuantity)}
+                        {formatPeso(selectedUnitPrice * requestedQuantity)}
                       </span>
                     </div>
                   </div>

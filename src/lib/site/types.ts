@@ -81,6 +81,10 @@ export interface CartLine {
   quantity: number;
   imageUrl: string | null;
   isDigital: boolean;
+  /** Pricing category applied to this line, or null when the published price applies. */
+  pricingCategory?: string | null;
+  /** The published price, kept so a repriced line can show what changed. */
+  listPrice?: number | null;
 }
 
 export interface QuoteResult {
@@ -98,7 +102,15 @@ export interface QuoteResult {
     lineTotal: number;
     isDigital: boolean;
     imageUrl: string | null;
+    /** Pricing the server applied to this line. */
+    listPrice?: number;
+    srp?: number;
+    memberPrice?: boolean;
+    pricingCategory?: string | null;
   }>;
+  pricingCategory?: string | null;
+  pricingVersion?: string;
+  currency?: string;
   subtotal?: number;
   shippingFee?: number;
   shippingQuoted?: boolean;
@@ -138,7 +150,12 @@ export interface TrackedOrder {
     quantity: number;
     unitPrice: number;
     lineTotal: number;
+    pricingCategory?: string | null;
+    pricingRuleVersion?: string | null;
+    currency?: string | null;
   }>;
+  /** The member pricing category applied to this order, if any. */
+  pricingCategory?: string | null;
   awaitingPaymentVerification?: boolean;
 }
 
@@ -153,6 +170,8 @@ export interface PlacedOrder {
   totalAmount?: number;
   customerType?: string;
   reasonText?: string;
+  pricingCategory?: string | null;
+  pricingVersion?: string;
   /** Returned by a Shopping Wallet checkout, where the order is paid as it is placed. */
   paymentMethod?: string;
   reference?: string;

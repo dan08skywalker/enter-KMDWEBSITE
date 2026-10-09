@@ -44,6 +44,8 @@ import { useWalletBalance } from "@/hooks/use-wallet-balance";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatPeso } from "@/lib/kmd/format";
+import { memberPriceLabel } from "@/lib/kmd/pricing-labels";
+import { MemberPriceChip } from "@/components/site/member-price-chip";
 import type { PlacedOrder, QuoteResult } from "@/lib/site/types";
 
 /** The payment method value that means "pay from the Shopping Wallet". */
@@ -619,6 +621,12 @@ export default function CheckoutPage() {
                       <p className="text-[11px] text-muted-foreground">
                         {line.quantity} × {formatPeso(line.unitPrice)}
                       </p>
+                      {line.memberPrice ? (
+                        <MemberPriceChip
+                          label={memberPriceLabel(line.pricingCategory)}
+                          className="mt-1"
+                        />
+                      ) : null}
                     </div>
                     <p className="shrink-0 text-xs font-bold tabular-nums">
                       {formatPeso(line.lineTotal)}
@@ -653,6 +661,17 @@ export default function CheckoutPage() {
                   </dd>
                 </div>
               </dl>
+
+              {quote && Math.abs(quote.subtotal - cart.subtotal) > 0.005 ? (
+                <p className="mt-3 rounded-lg border border-warning/40 bg-warning/10 p-3 text-[11px] leading-relaxed text-foreground/85">
+                  Your total was recalculated: the bag showed {formatPeso(cart.subtotal)} and the
+                  server total is <strong>{formatPeso(quote.subtotal)}</strong>
+                  {quote.pricingCategory
+                    ? `, using your ${memberPriceLabel(quote.pricingCategory)?.replace("Your Member Price · ", "")} price`
+                    : ""}
+                  . The server figure is what will be charged.
+                </p>
+              ) : null}
 
               {quoteError ? (
                 <p className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-[11px] text-destructive">

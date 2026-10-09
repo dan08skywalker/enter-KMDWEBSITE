@@ -1,0 +1,190 @@
+-- Restores the quote with member pricing applied per line. The previous definition
+-- was replaced by an incomplete body and is corrected here in full.
+create or replace function public.kmd_checkout_quote(p_items jsonb, p_zone_id uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_inv public.inventory%rowtype;
+  v_qty int;
+  v_lines jsonb := '[]'::jsonb;
+  v_subtotal numeric(14,2) := 0;
+  v_needs_shipping boolean := false;
+  v_zone public.delivery_zones%rowtype;
+  v_shipping numeric(14,2) := 0;
+  v_quoted boolean := true;
+  v_pricing jsonb;
+  v_line_price numeric(14,2);
+  v_category text;
+  v_version text;
+begin
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    return jsonb_build_object('status','FAILED','reason','EMPTY_CART','reasonText','Your bag is empty.');
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := greatest(coalesce((v_item->>'quantity')::int, 0), 0);
+    select * into v_product from public.products
+      where upper(sku) = upper(trim(coalesce(v_item->>'sku',''))) and is_active;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_AVAILABLE',
+        'reasonText','An item in your bag is no longer available.', 'sku', v_item->>'sku');
+    end if;
+    if v_qty < 1 then
+      return jsonb_build_object('status','FAILED','reason','VALIDATION',
+        'reasonText','Quantity must be at least 1 for ' || v_product.name, 'sku', v_product.sku);
+    end if;
+
+    select * into v_inv from public.inventory where product_id = v_product.id;
+    -- Mirrors place_order: a product with no stock record is treated as out of
+    -- stock, so the quote and the order always agree.
+    if not v_product.is_digital and v_product.track_inventory
+       and (not found or (not v_inv.is_unlimited
+            and (v_inv.quantity_on_hand - v_inv.reserved_quantity) < v_qty)) then
+      return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_STOCK',
+        'reasonText', case when not found then v_product.name || ' is not available right now.'
+          else 'Only ' || greatest(v_inv.quantity_on_hand - v_inv.reserved_quantity, 0)
+               || ' left of ' || v_product.name end,
+        'sku', v_product.sku,
+        'available', case when not found then 0
+          else greatest(v_inv.quantity_on_hand - v_inv.reserved_quantity, 0) end);
+    end if;
+
+    if not v_product.is_digital then
+      v_needs_shipping := true;
+    end if;
+
+    -- The buyer's own category decides the price; nothing from the request is used.
+    v_pricing := public.kmd_price_snapshot(v_uid, v_product.id);
+    v_line_price := coalesce((v_pricing->>'price')::numeric, v_product.selling_price);
+    if v_pricing->>'category' is not null and coalesce((v_pricing->>'memberPricing')::boolean, false) then
+      v_category := v_pricing->>'category';
+      v_version := v_pricing->>'version';
+    end if;
+
+    v_subtotal := v_subtotal + (v_line_price * v_qty);
+    v_lines := v_lines || jsonb_build_object(
+      'sku', v_product.sku, 'name', v_product.name, 'productId', v_product.id,
+      'quantity', v_qty, 'unitPrice', v_line_price,
+      'lineTotal', v_line_price * v_qty, 'isDigital', v_product.is_digital,
+      'imageUrl', v_product.image_url,
+      'listPrice', coalesce((v_pricing->>'listPrice')::numeric, v_product.selling_price),
+      'srp', coalesce((v_pricing->>'srp')::numeric, v_product.regular_price, v_product.selling_price),
+      'memberPrice', coalesce((v_pricing->>'memberPricing')::boolean, false),
+      'pricingCategory', case when coalesce((v_pricing->>'memberPricing')::boolean, false)
+        then v_pricing->>'category' else null end);
+  end loop;
+
+  if not v_needs_shipping then
+    v_quoted := true;
+  elsif p_zone_id is null then
+    v_quoted := false;
+  else
+    select * into v_zone from public.delivery_zones where id = p_zone_id and is_active;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','DELIVERY_ZONE_NOT_FOUND',
+        'reasonText','That delivery area is not available.');
+    end if;
+    if not v_zone.is_configured then
+      -- The owner has not supplied this area's fee yet. The order is accepted
+      -- and flagged instead of inventing a charge.
+      v_quoted := false;
+    else
+      v_shipping := v_zone.shipping_fee;
+      if v_zone.free_shipping_threshold is not null and v_subtotal >= v_zone.free_shipping_threshold then
+        v_shipping := 0;
+      end if;
+    end if;
+  end if;
+
+  return jsonb_build_object(
+    'status','OK',
+    'lines', v_lines,
+    'subtotal', v_subtotal,
+    'shippingFee', v_shipping,
+    'shippingQuoted', v_quoted,
+    'requiresShipping', v_needs_shipping,
+    'total', v_subtotal + v_shipping,
+    'zoneName', v_zone.name,
+    'pricingCategory', v_category,
+    'pricingVersion', coalesce(v_version, (select value #>> '{}' from public.system_settings where key = 'member_pricing_version'), '1'),
+    'currency', 'PHP');
+end $$;
+
+grant execute on function public.kmd_checkout_quote(jsonb, uuid) to anon, authenticated;
+
+-- ---------- member-area repeat purchase, priced for that buyer ----------
+create or replace function public.kmd_create_order(p_product_id uuid, p_quantity int, p_buyer uuid default null)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_buyer_id uuid;
+  v_buyer public.profiles%rowtype;
+  v_product public.products%rowtype;
+  v_order_id uuid;
+  v_order_number text;
+  v_pricing jsonb;
+  v_line_price numeric(14,2);
+begin
+  v_buyer_id := coalesce(p_buyer, auth.uid());
+  if v_buyer_id is null then
+    raise exception 'KMD_UNAUTHENTICATED: you must be signed in to place an order';
+  end if;
+  if p_quantity is null or p_quantity < 1 then
+    raise exception 'KMD_VALIDATION: quantity must be at least 1';
+  end if;
+
+  select * into v_buyer from public.profiles where id = v_buyer_id;
+  if not found then
+    raise exception 'KMD_BUYER_MEMBER_RECORD_NOT_FOUND: member record not found';
+  end if;
+
+  select * into v_product from public.products where id = p_product_id;
+  if not found then
+    raise exception 'KMD_PRODUCT_NOT_FOUND: product ID % does not exist', p_product_id;
+  end if;
+  if not v_product.is_active then
+    raise exception 'KMD_PRODUCT_INACTIVE: % is not available', v_product.name;
+  end if;
+
+  -- Member pricing applies from the buyer's current approved category, so a package
+  -- sitting in the cart can never grant its own pricing.
+  v_pricing := public.kmd_price_snapshot(v_buyer_id, v_product.id);
+  v_line_price := coalesce((v_pricing->>'price')::numeric, v_product.selling_price);
+
+  v_order_number := 'KMD-ORDER-' || lpad(nextval('public.kmd_order_seq')::text, 6, '0');
+
+  insert into public.orders (
+    order_number, buyer_profile_id, buyer_member_code, customer_type,
+    total_amount, subtotal, shipping_fee, is_shipping_quoted,
+    status, fulfillment_status, is_test, payment_method
+  ) values (
+    v_order_number, v_buyer.id, v_buyer.member_code, 'member',
+    v_line_price * p_quantity, v_line_price * p_quantity, 0, true,
+    'pending_payment', 'unfulfilled', v_buyer.is_test, 'shopping_wallet'
+  ) returning id into v_order_id;
+
+  insert into public.order_items (
+    order_id, product_id, sku, product_name, quantity, unit_price, line_total,
+    pricing_category, pricing_rule_version, currency
+  ) values (
+    v_order_id, v_product.id, v_product.sku, v_product.name, p_quantity, v_line_price,
+    v_line_price * p_quantity,
+    case when coalesce((v_pricing->>'memberPricing')::boolean, false) then v_pricing->>'category' end,
+    v_pricing->>'version', 'PHP');
+
+  return jsonb_build_object(
+    'orderId', v_order_id,
+    'orderNumber', v_order_number,
+    'status', 'pending_payment',
+    'sku', v_product.sku,
+    'productName', v_product.name,
+    'quantity', p_quantity,
+    'unitPrice', v_line_price,
+    'pricingCategory', case when coalesce((v_pricing->>'memberPricing')::boolean, false) then v_pricing->>'category' end,
+    'totalAmount', v_line_price * p_quantity
+  );
+end $$;
+
+revoke all on function public.kmd_create_order(uuid,int,uuid) from public, anon;
+grant execute on function public.kmd_create_order(uuid,int,uuid) to authenticated, service_role;

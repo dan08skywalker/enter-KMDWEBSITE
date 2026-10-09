@@ -20,6 +20,8 @@ import { useStore } from "@/contexts/store-context";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDateTime, formatPeso } from "@/lib/kmd/format";
+import { pricingCategoryLabel } from "@/lib/kmd/pricing-labels";
+import { MemberPriceChip } from "@/components/site/member-price-chip";
 import type { TrackedOrder } from "@/lib/site/types";
 
 const STATUS_COPY: Record<string, { label: string; detail: string; tone: "wait" | "ok" | "bad" }> = {
@@ -309,6 +311,12 @@ export default function OrderConfirmationPage() {
 
             <section className="kmd-panel p-6">
               <h2 className="text-sm font-semibold">What you ordered</h2>
+              {order.pricingCategory ? (
+                <MemberPriceChip
+                  label={`${pricingCategoryLabel(order.pricingCategory)} price applied`}
+                  className="mt-2"
+                />
+              ) : null}
               <ul className="mt-4 divide-y">
                 {(order.items ?? []).map((item) => (
                   <li key={item.sku} className="flex items-center justify-between gap-4 py-3">
@@ -317,6 +325,11 @@ export default function OrderConfirmationPage() {
                       <p className="font-mono text-[10px] text-muted-foreground">
                         {item.sku} · {item.quantity} × {formatPeso(item.unitPrice)}
                       </p>
+                      {item.pricingCategory ? (
+                        <p className="mt-1 text-[10px] font-semibold text-accent">
+                          {pricingCategoryLabel(item.pricingCategory)} price
+                        </p>
+                      ) : null}
                     </div>
                     <p className="shrink-0 text-xs font-bold tabular-nums">
                       {formatPeso(item.lineTotal)}

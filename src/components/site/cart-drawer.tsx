@@ -76,6 +76,9 @@ export function CartDrawer({ open, onOpenChange }: CartDrawerProps) {
                       <p className="mt-1 text-xs text-muted-foreground">
                         {formatPeso(line.unitPrice)} each
                       </p>
+                      {line.pricingCategory ? (
+                        <p className="mt-1 text-[10px] font-semibold text-accent">Your member price</p>
+                      ) : null}
 
                       <div className="mt-2 flex items-center gap-2">
                         <div className="inline-flex items-center rounded-md border">

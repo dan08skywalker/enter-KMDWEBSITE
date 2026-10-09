@@ -83,6 +83,7 @@ export function ProductCard({ product }: ProductCardProps) {
             regularPrice={product.regularPrice}
             promoPrice={product.promoPrice}
             effectivePrice={product.effectivePrice}
+            sku={product.sku}
             size="sm"
           />
 

@@ -1,0 +1,11 @@
+-- Verification cleanup: restore the Dokudami trial price to its matrix value and
+-- return the test accounts' package pointers to the empty state they had before.
+select public.kmd_admin_set_member_price((select id from public.profiles where username='kmdadmin'), (select id from public.products where sku='KMD-DOKUDAMI-001'), 'trial', 1500)::text as price_restored;
+
+update public.profiles set package_id = null
+ where is_test and package_id is not null;
+
+select (select count(*) from public.profiles where is_test and package_id is not null) as test_members_with_package,
+       (select mp.price from public.member_prices mp join public.products p on p.id = mp.product_id where p.sku = 'KMD-DOKUDAMI-001' and mp.category = 'trial') as dokudami_trial_price,
+       (select count(*) from public.member_prices) as price_cells,
+       (select value #>> '{}' from public.system_settings where key = 'member_pricing_version') as pricing_version;

@@ -1,0 +1,70 @@
+-- ============================================================================
+-- Order-line price snapshots + member pricing in the quote and the member order
+-- ============================================================================
+
+-- Additive, nullable: historical lines keep their original values untouched.
+alter table public.order_items
+  add column if not exists pricing_category text,
+  add column if not exists pricing_rule_version text,
+  add column if not exists currency text not null default 'PHP';
+
+comment on column public.order_items.pricing_category is
+  'Pricing category applied to this line at purchase time (trial/classic/gold/platinum/stockist), or null for the published price.';
+comment on column public.order_items.pricing_rule_version is
+  'Version of the member pricing matrix when this line was priced.';
+
+-- ---------- quote: priced per line for the signed-in buyer ----------
+create or replace function public.kmd_checkout_quote(p_items jsonb, p_zone_id uuid default null)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_item jsonb;
+  v_product public.products%rowtype;
+  v_inv public.inventory%rowtype;
+  v_qty int;
+  v_lines jsonb := '[]'::jsonb;
+  v_subtotal numeric(14,2) := 0;
+  v_needs_shipping boolean := false;
+  v_zone public.delivery_zones%rowtype;
+  v_shipping numeric(14,2) := 0;
+  v_quoted boolean := true;
+  v_pricing jsonb;
+  v_line_price numeric(14,2);
+  v_category text;
+  v_version text;
+begin
+  if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
+    return jsonb_build_object('status','FAILED','reason','EMPTY_CART','reasonText','Your bag is empty.');
+  end if;
+
+  for v_item in select * from jsonb_array_elements(p_items) loop
+    v_qty := greatest(coalesce((v_item->>'quantity')::int, 0), 0);
+    select * into v_product from public.products
+      where upper(sku) = upper(trim(coalesce(v_item->>'sku',''))) and is_active;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_AVAILABLE',
+        'reasonText','An item in your bag is no longer available.', 'sku', v_item->>'sku');
+    end if;
+    if v_qty < 1 then
+      return jsonb_build_object('status','FAILED','reason','VALIDATION',
+        'reasonText','Quantity must be at least 1 for ' || v_product.name, 'sku', v_product.sku);
+    end if;
+
+    select * into v_inv from public.inventory where product_id = v_product.id;
+    if not v_product.is_digital and v_product.track_inventory
+       and (not found or (not v_inv.is_unlimited
+            and (v_inv.quantity_on_ready - v_inv.reserved_quantity) < v_qty)) then
+      return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_STOCK',
+        'reasonText', 'Only ' || greatest(coalesce(v_inv.quantity_on_hand,0) - coalesce(v_inv.reserved_quantity,0), 0)
+          || ' left of ' || v_product.name,
+        'sku', v_product.sku,
+        'available', greatest(coalesce(v_inv.quantity_on_hand,0) - coalesce(v_inv.reserved_quantity,0), 0));
+    end if;
+
+    if not v_product.is_digital then
+      v_needs_shipping := true;
+    end if;
+  end loop;
+
+  return jsonb_build_object('status','OK');
+end $$;

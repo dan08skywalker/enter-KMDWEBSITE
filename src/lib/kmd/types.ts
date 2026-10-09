@@ -138,6 +138,10 @@ export interface OrderItem {
   quantity: number;
   unit_price: number;
   line_total: number;
+  /** Pricing category applied when this line was bought, or null for the published price. */
+  pricing_category?: string | null;
+  pricing_rule_version?: string | null;
+  currency?: string | null;
 }
 
 export interface PaymentProof {

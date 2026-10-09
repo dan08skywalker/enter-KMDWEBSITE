@@ -1,0 +1,216 @@
+-- ============================================================================
+-- Member pricing matrix: seed, member-facing read, administrator writes
+--
+-- Reviewed before running: the block below only seeds the new member_prices table
+-- (upsert keyed on product_id + category), after checking that every supplied SKU
+-- maps to a real product. It issues no DELETE/TRUNCATE/DROP and touches no other
+-- product, price, reward, order, member or ledger row. Rerunning updates the same
+-- 45 rows and cannot create a duplicate.
+-- ============================================================================
+
+do $$
+declare
+  v_missing text;
+begin
+  create temp table kmd_seed_prices (sku text, category text, price numeric, srp numeric) on commit drop;
+
+  insert into kmd_seed_prices (sku, category, price, srp) values
+    ('KMD-POWERPILL-75L','trial',800,1250), ('KMD-POWERPILL-75L','classic',700,1250),
+    ('KMD-POWERPILL-75L','gold',670,1250), ('KMD-POWERPILL-75L','platinum',650,1250),
+    ('KMD-POWERPILL-75L','stockist',600,1250),
+    ('KMD-POWERPILL-15L','trial',275,300), ('KMD-POWERPILL-15L','classic',250,300),
+    ('KMD-POWERPILL-15L','gold',220,300), ('KMD-POWERPILL-15L','platinum',200,300),
+    ('KMD-POWERPILL-15L','stockist',160,300),
+    ('KMD-LED-BULB','trial',1300,1500), ('KMD-LED-BULB','classic',1200,1500),
+    ('KMD-LED-BULB','gold',1175,1500), ('KMD-LED-BULB','platinum',1150,1500),
+    ('KMD-LED-BULB','stockist',1100,1500),
+    ('KMD-DOKUDAMI-001','trial',1500,1850), ('KMD-DOKUDAMI-001','classic',1460,1850),
+    ('KMD-DOKUDAMI-001','gold',1450,1850), ('KMD-DOKUDAMI-001','platinum',1440,1850),
+    ('KMD-DOKUDAMI-001','stockist',1350,1850),
+    ('KMD-TRIAL-001','trial',1980,1980), ('KMD-TRIAL-001','classic',1980,1980),
+    ('KMD-TRIAL-001','gold',1980,1980), ('KMD-TRIAL-001','platinum',1970,1980),
+    ('KMD-TRIAL-001','stockist',1960,1980),
+    ('KMD-TRIAL-002','trial',998,998), ('KMD-TRIAL-002','classic',998,998),
+    ('KMD-TRIAL-002','gold',998,998), ('KMD-TRIAL-002','platinum',990,998),
+    ('KMD-TRIAL-002','stockist',980,998),
+    ('KMD-CLASSIC-001','trial',3800,3800), ('KMD-CLASSIC-001','classic',3800,3800),
+    ('KMD-CLASSIC-001','gold',3800,3800), ('KMD-CLASSIC-001','platinum',3770,3800),
+    ('KMD-CLASSIC-001','stockist',3700,3800),
+    ('KMD-GOLD-001','trial',7800,7800), ('KMD-GOLD-001','classic',7800,7800),
+    ('KMD-GOLD-001','gold',7800,7800), ('KMD-GOLD-001','platinum',7750,7800),
+    ('KMD-GOLD-001','stockist',7600,7800),
+    ('KMD-PLATINUM-001','trial',56000,56000), ('KMD-PLATINUM-001','classic',56000,56000),
+    ('KMD-PLATINUM-001','gold',56000,56000), ('KMD-PLATINUM-001','platinum',55700,56000),
+    ('KMD-PLATINUM-001','stockist',55000,56000);
+
+  select string_agg(distinct s.sku, ', ') into v_missing
+    from kmd_seed_prices s
+    left join public.products p on upper(p.sku) = upper(s.sku)
+   where p.id is null;
+
+  if v_missing is not null then
+    raise exception 'MAPPING ERROR: these matrix SKUs do not exist: %', v_missing;
+  end if;
+
+  insert into public.member_prices (product_id, sku, category, price, srp)
+  select p.id, p.sku, s.category, s.price, s.srp
+    from kmd_seed_prices s
+    join public.products p on upper(p.sku) = upper(s.sku)
+  on conflict (product_id, category) do update
+    set price = excluded.price, sku = excluded.sku, srp = excluded.srp;
+end $$;
+
+create or replace function public.kmd_member_pricing()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_member uuid := auth.uid();
+  v_category text;
+  v_version text;
+  v_prices jsonb;
+begin
+  if v_member is null then
+    return jsonb_build_object('signedIn', false, 'category', null, 'prices', '{}'::jsonb);
+  end if;
+
+  v_category := public.kmd_member_price_category(v_member);
+
+  select coalesce((value #>> '{}'), '1') into v_version
+    from public.system_settings where key = 'member_pricing_version';
+
+  select coalesce(jsonb_object_agg(upper(p.sku), jsonb_build_object(
+      'productId', p.id,
+      'sku', p.sku,
+      'name', p.name,
+      'price', mp.price,
+      'srp', coalesce(mp.srp, p.regular_price, p.selling_price),
+      'listPrice', p.selling_price,
+      'category', mp.category)), '{}'::jsonb)
+    into v_prices
+    from public.member_prices mp
+    join public.products p on p.id = mp.product_id
+   where v_category is not null
+     and mp.category = v_category
+     and p.is_active;
+
+  return jsonb_build_object(
+    'signedIn', true,
+    'category', v_category,
+    'categoryLabel', case v_category
+      when 'trial' then 'Trial Member'
+      when 'classic' then 'Classic Member'
+      when 'gold' then 'Gold Member'
+      when 'platinum' then 'Platinum Member'
+      when 'stockist' then 'City/Municipal Stockist'
+      else null end,
+    'version', coalesce(v_version, '1'),
+    'prices', coalesce(v_prices, '{}'::jsonb));
+end $$;
+
+revoke all on function public.kmd_member_pricing() from public, anon;
+grant execute on function public.kmd_member_pricing() to authenticated;
+
+create or replace function public.kmd_admin_set_member_price(
+  p_actor uuid,
+  p_product_id uuid,
+  p_category text,
+  p_price numeric
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_product public.products%rowtype;
+  v_category text := lower(trim(coalesce(p_category, '')));
+  v_before public.member_prices%rowtype;
+  v_price numeric(14,2);
+  v_version text;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required');
+  end if;
+
+  if v_category not in ('trial','classic','gold','platinum','stockist') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_CATEGORY',
+      'reasonText','Unknown pricing category: ' || coalesce(p_category, '(none)'));
+  end if;
+
+  if p_price is null or p_price < 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_PRICE',
+      'reasonText','Enter a price of zero or more');
+  end if;
+  if p_price > 9999999.99 then
+    return jsonb_build_object('status','FAILED','reason','PRICE_TOO_LARGE',
+      'reasonText','That price is larger than a single product price allows');
+  end if;
+
+  v_price := round(p_price, 2);
+
+  select * into v_product from public.products where id = p_product_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND',
+      'reasonText','That product does not exist');
+  end if;
+
+  select * into v_before from public.member_prices
+    where product_id = p_product_id and category = v_category for update;
+
+  insert into public.member_prices (product_id, sku, category, price, srp, updated_by)
+  values (p_product_id, v_product.sku, v_category, v_price,
+          coalesce(v_before.srp, v_product.regular_price, v_product.selling_price), p_actor)
+  on conflict (product_id, category) do update
+    set price = excluded.price, sku = excluded.sku, updated_by = p_actor;
+
+  update public.system_settings
+     set value = to_jsonb(coalesce((value #>> '{}')::int, 1) + 1),
+         updated_at = now()
+   where key = 'member_pricing_version';
+
+  select coalesce((value #>> '{}'), '1') into v_version
+    from public.system_settings where key = 'member_pricing_version';
+
+  perform public.kmd_audit(p_actor, 'MEMBER_PRICE_CHANGE', null, null,
+    'member_prices', p_product_id::text || ':' || v_category,
+    jsonb_build_object('sku', v_product.sku, 'category', v_category,
+      'price', v_before.price, 'srp', v_before.srp),
+    jsonb_build_object('sku', v_product.sku, 'category', v_category,
+      'price', v_price, 'srp', coalesce(v_before.srp, v_product.regular_price, v_product.selling_price),
+      'pricingVersion', v_version),
+    'Member price for ' || v_product.sku || ' (' || v_category || ') set to ' || v_price::text,
+    v_product.is_test);
+
+  return jsonb_build_object('status','UPDATED','productId', p_product_id, 'sku', v_product.sku,
+    'category', v_category, 'price', v_price, 'previousPrice', v_before.price,
+    'pricingVersion', v_version,
+    'reasonText','Member price updated to ' || v_price::text || ' for ' || v_product.sku || '.');
+end $$;
+
+revoke all on function public.kmd_admin_set_member_price(uuid,uuid,text,numeric) from public, anon, authenticated;
+grant execute on function public.kmd_admin_set_member_price(uuid,uuid,text,numeric) to service_role;
+
+create or replace function public.kmd_admin_pricing_matrix(p_actor uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not public.kmd_is_admin(p_actor) then null else jsonb_build_object(
+    'version', (select coalesce(value #>> '{}', '1') from public.system_settings where key = 'member_pricing_version'),
+    'products', coalesce((
+      select jsonb_agg(entry order by entry->>'sku')
+      from (
+        select jsonb_build_object(
+          'productId', p.id, 'sku', p.sku, 'name', p.name,
+          'productType', p.product_type, 'category', p.category,
+          'sellingPrice', p.selling_price, 'regularPrice', p.regular_price,
+          'isActive', p.is_active,
+          'prices', coalesce((
+            select jsonb_object_agg(mp.category, jsonb_build_object('price', mp.price, 'srp', mp.srp))
+              from public.member_prices mp where mp.product_id = p.id), '{}'::jsonb)
+        ) as entry
+        from public.products p
+        where p.product_type in ('membership','retail','reorder','bundle')
+      ) rows
+    ), '[]'::jsonb)) end;
+$$;
+
+revoke all on function public.kmd_admin_pricing_matrix(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_admin_pricing_matrix(uuid) to service_role;
+
+select count(*) as seeded_cells, count(distinct product_id) as products_with_prices, count(distinct category) as categories from public.member_prices;

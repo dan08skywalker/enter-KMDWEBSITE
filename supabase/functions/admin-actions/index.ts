@@ -369,6 +369,19 @@ Deno.serve(async (req) => {
           p_actor: actorId,
         });
 
+      case "pricing_matrix":
+        return run("kmd_admin_pricing_matrix", { p_actor: actorId });
+
+      case "set_member_price":
+        // One matrix cell. The database validates the amount, records the previous
+        // and new value with the actor and timestamp, and bumps the pricing version.
+        return run("kmd_admin_set_member_price", {
+          p_actor: actorId,
+          p_product_id: String(body?.productId ?? ""),
+          p_category: String(body?.category ?? ""),
+          p_price: Number(body?.price ?? 0),
+        });
+
       case "update_setting":
         return run("kmd_update_setting", {
           p_key: String(body?.key ?? ""),

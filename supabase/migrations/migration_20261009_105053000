@@ -1,0 +1,78 @@
+-- Fix: products carry no test flag, so the audit row for a price change is written
+-- as configuration (is_test = false) instead of reading a column that does not exist.
+create or replace function public.kmd_admin_set_member_price(
+  p_actor uuid,
+  p_product_id uuid,
+  p_category text,
+  p_price numeric
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_product public.products%rowtype;
+  v_category text := lower(trim(coalesce(p_category, '')));
+  v_before public.member_prices%rowtype;
+  v_price numeric(14,2);
+  v_version text;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required');
+  end if;
+
+  if v_category not in ('trial','classic','gold','platinum','stockist') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_CATEGORY',
+      'reasonText','Unknown pricing category: ' || coalesce(p_category, '(none)'));
+  end if;
+
+  if p_price is null or p_price < 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_PRICE',
+      'reasonText','Enter a price of zero or more');
+  end if;
+  if p_price > 9999999.99 then
+    return jsonb_build_object('status','FAILED','reason','PRICE_TOO_LARGE',
+      'reasonText','That price is larger than a single product price allows');
+  end if;
+
+  v_price := round(p_price, 2);
+
+  select * into v_product from public.products where id = p_product_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_FOUND',
+      'reasonText','That product does not exist');
+  end if;
+
+  select * into v_before from public.member_prices
+    where product_id = p_product_id and category = v_category for update;
+
+  insert into public.member_prices (product_id, sku, category, price, srp, updated_by)
+  values (p_product_id, v_product.sku, v_category, v_price,
+          coalesce(v_before.srp, v_product.regular_price, v_product.selling_price), p_actor)
+  on conflict (product_id, category) do update
+    set price = excluded.price, sku = excluded.sku, updated_by = p_actor;
+
+  update public.system_settings
+     set value = to_jsonb(coalesce((value #>> '{}')::int, 1) + 1),
+         updated_at = now()
+   where key = 'member_pricing_version';
+
+  select coalesce((value #>> '{}'), '1') into v_version
+    from public.system_settings where key = 'member_pricing_version';
+
+  perform public.kmd_audit(p_actor, 'MEMBER_PRICE_CHANGE', null, null,
+    'member_prices', p_product_id::text || ':' || v_category,
+    jsonb_build_object('sku', v_product.sku, 'category', v_category,
+      'price', v_before.price, 'srp', v_before.srp),
+    jsonb_build_object('sku', v_product.sku, 'category', v_category,
+      'price', v_price, 'srp', coalesce(v_before.srp, v_product.regular_price, v_product.selling_price),
+      'pricingVersion', v_version),
+    'Member price for ' || v_product.sku || ' (' || v_category || ') set to ' || v_price::text,
+    false);
+
+  return jsonb_build_object('status','UPDATED','productId', p_product_id, 'sku', v_product.sku,
+    'category', v_category, 'price', v_price, 'previousPrice', v_before.price,
+    'pricingVersion', v_version,
+    'reasonText','Member price updated to ' || v_price::text || ' for ' || v_product.sku || '.');
+end $$;
+
+revoke all on function public.kmd_admin_set_member_price(uuid,uuid,text,numeric) from public, anon, authenticated;
+grant execute on function public.kmd_admin_set_member_price(uuid,uuid,text,numeric) to service_role;

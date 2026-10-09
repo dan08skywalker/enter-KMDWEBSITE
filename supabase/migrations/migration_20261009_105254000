@@ -1,0 +1,5 @@
+-- Removes ONLY the temporary 'admin' role granted to testsponsor2 minutes ago for
+-- verifying the authorised pricing path. Restores the previous authorization state.
+delete from public.user_roles where role = 'admin' and user_id = (select id from public.profiles where username='testsponsor2');
+
+select a.action, a.actor_member_code, a.entity_id as priced_cell, a.previous_value->>'price' as previous_price, a.new_value->>'price' as new_price, a.new_value->>'pricingVersion' as pricing_version, a.reason, a.created_at from public.audit_logs a where a.action = 'MEMBER_PRICE_CHANGE' order by a.created_at desc limit 4;

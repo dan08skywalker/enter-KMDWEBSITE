@@ -28,6 +28,13 @@ interface CartContextValue {
   setQuantity: (sku: string, quantity: number) => void;
   remove: (sku: string) => void;
   clear: () => void;
+  /**
+   * Reprice the bag to the signed-in buyer's member prices. Returns the lines that
+   * changed and what they changed from, so the change can be shown before checkout.
+   */
+  applyMemberPrices: (
+    prices: Record<string, { price: number; category: string }>,
+  ) => Array<{ sku: string; from: number; to: number }>;
 }
 
 const CartContext = createContext<CartContextValue | null>(null);
@@ -112,6 +119,38 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clear = useCallback(() => setLines([]), []);
 
+  const applyMemberPrices = useCallback(
+    (prices: Record<string, { price: number; category: string }>) => {
+      const changed: Array<{ sku: string; from: number; to: number }> = [];
+
+      setLines((current) => {
+        let touched = false;
+        const next = current.map((row) => {
+          const entry = prices[row.sku.toUpperCase()];
+          if (!entry) {
+            // The SKU has no member price, so the published price stands.
+            if (row.pricingCategory === null || row.pricingCategory === undefined) return row;
+            touched = true;
+            return { ...row, pricingCategory: null };
+          }
+          if (row.unitPrice === entry.price && row.pricingCategory === entry.category) return row;
+          changed.push({ sku: row.sku, from: row.unitPrice, to: entry.price });
+          touched = true;
+          return {
+            ...row,
+            unitPrice: entry.price,
+            pricingCategory: entry.category,
+            listPrice: row.listPrice ?? row.unitPrice,
+          };
+        });
+        return touched ? next : current;
+      });
+
+      return changed;
+    },
+    [],
+  );
+
   const value = useMemo<CartContextValue>(() => {
     const count = lines.reduce((total, row) => total + row.quantity, 0);
     const subtotal = lines.reduce((total, row) => total + row.unitPrice * row.quantity, 0);
@@ -124,8 +163,9 @@ export function CartProvider({ children }: { children: ReactNode }) {
       setQuantity,
       remove,
       clear,
+      applyMemberPrices,
     };
-  }, [lines, add, setQuantity, remove, clear]);
+  }, [lines, add, setQuantity, remove, clear, applyMemberPrices]);
 
   return <CartContext.Provider value={value}>{children}</CartContext.Provider>;
 }

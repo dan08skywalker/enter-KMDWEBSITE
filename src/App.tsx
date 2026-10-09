@@ -8,7 +8,9 @@ import { AuthProvider } from "@/contexts/auth-context";
 // before the first render. See the module for why this is needed.
 import "@/lib/auth/recovery-redirect";
 import { StoreProvider } from "@/contexts/store-context";
+import { CartPriceSync } from "@/components/site/cart-price-sync";
 import { CartProvider } from "@/contexts/cart-context";
+import { MemberPricingProvider } from "@/contexts/member-pricing-context";
 import { routers } from "./router";
 
 const queryClient = new QueryClient({
@@ -30,11 +32,14 @@ const App = () => {
       <StoreProvider>
         <CartProvider>
           <AuthProvider>
-            <TooltipProvider>
-              <Toaster />
-              <Sonner />
-              <RouterProvider router={router} />
-            </TooltipProvider>
+            <MemberPricingProvider>
+              <CartPriceSync />
+              <TooltipProvider>
+                <Toaster />
+                <Sonner />
+                <RouterProvider router={router} />
+              </TooltipProvider>
+            </MemberPricingProvider>
           </AuthProvider>
         </CartProvider>
       </StoreProvider>

@@ -1,0 +1,6 @@
+-- Stockist designation outranks a membership when both exist.
+update public.profiles set package_id = (select id from public.membership_packages where package_code='KMD-PKG-PLATINUM')
+ where is_test and username = 'testsponsor1';
+
+select public.kmd_member_price_category((select id from public.profiles where username='testsponsor1')) as category_with_both,
+       public.kmd_effective_unit_price((select id from public.profiles where username='testsponsor1'), (select id from public.products where sku='KMD-POWERPILL-75L')) as powerpill_75l_price;

@@ -1,0 +1,69 @@
+-- Order tracking also reports the pricing applied to each line, so the
+-- confirmation page shows the same member price the checkout charged.
+create or replace function public.kmd_checkout_track_order(p_order_number text, p_contact text)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_contact text := lower(nullif(trim(coalesce(p_contact,'')), ''));
+  v_items jsonb;
+  v_wallet jsonb;
+  v_category text;
+begin
+  select * into v_order from public.orders where order_number = trim(coalesce(p_order_number,''));
+  if not found then
+    return jsonb_build_object('found', false,
+      'reasonText','We could not find an order with those details.');
+  end if;
+
+  if not (
+    (auth.uid() is not null and v_order.buyer_profile_id = auth.uid())
+    or v_contact = v_order.guest_email
+    or v_contact = v_order.guest_phone
+    or public.kmd_try_uuid(p_contact) = v_order.access_token
+  ) then
+    return jsonb_build_object('found', false,
+      'reasonText','We could not find an order with those details.');
+  end if;
+
+  select coalesce(jsonb_agg(jsonb_build_object(
+    'sku', oi.sku, 'name', oi.product_name, 'quantity', oi.quantity,
+    'unitPrice', oi.unit_price, 'lineTotal', oi.line_total,
+    'pricingCategory', oi.pricing_category, 'pricingRuleVersion', oi.pricing_rule_version,
+    'currency', oi.currency) order by oi.created_at), '[]'::jsonb)
+  into v_items
+  from public.order_items oi where oi.order_id = v_order.id;
+
+  -- The category actually applied to this order, or null when the published price was used.
+  select min(oi.pricing_category) into v_category
+    from public.order_items oi
+   where oi.order_id = v_order.id and oi.pricing_category is not null;
+
+  select jsonb_build_object(
+    'reference', wp.reference, 'amount', wp.amount, 'paidAt', wp.created_at,
+    'walletBalanceBefore', wp.wallet_balance_before,
+    'walletBalanceAfter', wp.wallet_balance_after,
+    'status', wp.status, 'refundedAmount', wp.refunded_amount)
+  into v_wallet
+  from public.wallet_payments wp where wp.order_id = v_order.id;
+
+  return jsonb_build_object(
+    'found', true,
+    'orderNumber', v_order.order_number,
+    'status', v_order.status,
+    'fulfillmentStatus', v_order.fulfillment_status,
+    'paymentMethod', v_order.payment_method,
+    'walletPayment', v_wallet,
+    'pricingCategory', v_category,
+    'subtotal', v_order.subtotal,
+    'shippingFee', v_order.shipping_fee,
+    'isShippingQuoted', v_order.is_shipping_quoted,
+    'totalAmount', v_order.total_amount,
+    'courier', v_order.courier,
+    'trackingNumber', v_order.tracking_number,
+    'customerName', v_order.guest_name,
+    'createdAt', v_order.created_at,
+    'items', v_items,
+    'awaitingPaymentVerification', v_order.status in ('pending_payment','proof_submitted','under_review'));
+end $$;
+
+grant execute on function public.kmd_checkout_track_order(text, text) to anon, authenticated;

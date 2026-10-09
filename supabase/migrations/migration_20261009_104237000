@@ -1,0 +1,244 @@
+-- Storefront checkout, priced for the signed-in buyer and snapshotting the
+-- pricing that was applied. Every other behaviour is unchanged.
+create or replace function public.kmd_checkout_place_order(p_payload jsonb)
+returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_profile public.profiles%rowtype;
+  v_line jsonb;
+  v_product public.products%rowtype;
+  v_inv public.inventory%rowtype;
+  v_qty int;
+  v_order_id uuid;
+  v_order_number text;
+  v_token uuid;
+  v_subtotal numeric(14,2) := 0;
+  v_shipping numeric(14,2) := 0;
+  v_quoted boolean := true;
+  v_zone public.delivery_zones%rowtype;
+  v_guest_name text := nullif(trim(coalesce(p_payload->>'contactName','')), '');
+  v_guest_phone text := nullif(trim(coalesce(p_payload->>'contactPhone','')), '');
+  v_guest_email text := lower(nullif(trim(coalesce(p_payload->>'contactEmail','')), ''));
+  v_payment_method text := nullif(trim(coalesce(p_payload->>'paymentMethod','')), '');
+  v_reservation_hours numeric;
+  v_items jsonb := coalesce(p_payload->'items', '[]'::jsonb);
+  v_needs_shipping boolean := false;
+  v_is_member boolean := false;
+  v_zone_id uuid;
+  v_pricing jsonb;
+  v_line_price numeric(14,2);
+  v_category text;
+  v_version text;
+begin
+  if v_uid is not null then
+    select * into v_profile from public.profiles where id = v_uid;
+    if found then
+      v_is_member := true;
+      v_guest_name := coalesce(v_guest_name, v_profile.full_name);
+      v_guest_phone := coalesce(v_guest_phone, v_profile.mobile_number);
+      v_guest_email := coalesce(v_guest_email, lower(v_profile.email));
+    else
+      v_profile.id := null;
+    end if;
+  end if;
+
+  if v_guest_email is null or v_guest_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION',
+      'reasonText','A valid email address is required so we can send your order confirmation.');
+  end if;
+  if v_guest_name is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','Your name is required.');
+  end if;
+  if v_guest_phone is null then
+    return jsonb_build_object('status','FAILED','reason','VALIDATION','reasonText','A contact mobile number is required.');
+  end if;
+
+  if v_items is null or jsonb_typeof(v_items) <> 'array' or jsonb_array_length(v_items) = 0 then
+    return jsonb_build_object('status','FAILED','reason','EMPTY_CART','reasonText','Your bag is empty.');
+  end if;
+
+  -- ---- payment method: a verified account, or the member's own Shopping Wallet
+  if v_payment_method = 'shopping_wallet' then
+    if not v_is_member then
+      return jsonb_build_object('status','FAILED','reason','WALLET_REQUIRES_MEMBER',
+        'reasonText','Sign in to your account to pay with your Shopping Wallet.');
+    end if;
+  elsif v_payment_method is not null
+     and not exists (select 1 from public.payment_accounts a
+                     where a.is_active and a.is_verified and a.method = v_payment_method) then
+    return jsonb_build_object('status','FAILED','reason','PAYMENT_METHOD_NOT_AVAILABLE',
+      'reasonText','That payment method is not available yet.');
+  end if;
+
+  for v_line in
+    select value from jsonb_array_elements(v_items) as t(value) order by value->>'sku'
+  loop
+    v_qty := coalesce((v_line->>'quantity')::int, 0);
+    if v_qty < 1 or v_qty > 99 then
+      return jsonb_build_object('status','FAILED','reason','VALIDATION',
+        'reasonText','Quantity must be between 1 and 99.', 'sku', v_line->>'sku');
+    end if;
+
+    select * into v_product from public.products
+      where upper(sku) = upper(trim(coalesce(v_line->>'sku',''))) and is_active for update;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','PRODUCT_NOT_AVAILABLE',
+        'reasonText','An item in your bag is no longer available.', 'sku', v_line->>'sku');
+    end if;
+
+    -- The member price comes from the buyer's own category, resolved in the database.
+    v_pricing := public.kmd_price_snapshot(v_uid, v_product.id);
+    v_line_price := coalesce((v_pricing->>'price')::numeric, v_product.selling_price);
+
+    if v_line_price <= 0 then
+      return jsonb_build_object('status','FAILED','reason','PRICE_NOT_CONFIGURED',
+        'reasonText','The price for ' || v_product.name || ' has not been configured yet. Please contact us to order it.');
+    end if;
+
+    if coalesce((v_pricing->>'memberPricing')::boolean, false) then
+      v_category := v_pricing->>'category';
+      v_version := v_pricing->>'version';
+    end if;
+
+    if v_product.track_inventory and not v_product.is_digital then
+      select * into v_inv from public.inventory where product_id = v_product.id for update;
+      if not found or (not v_inv.is_unlimited
+         and (v_inv.quantity_on_hand - v_inv.reserved_quantity) < v_qty) then
+        return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_STOCK',
+          'reasonText', case when not found then v_product.name || ' is not available right now.'
+            else 'Only ' || greatest(v_inv.quantity_on_hand - v_inv.reserved_quantity, 0)
+                 || ' left of ' || v_product.name || '.' end,
+          'sku', v_product.sku,
+          'available', case when not found then 0
+            else greatest(v_inv.quantity_on_hand - v_inv.reserved_quantity, 0) end);
+      end if;
+      v_needs_shipping := true;
+    end if;
+
+    v_subtotal := v_subtotal + (v_line_price * v_qty);
+  end loop;
+
+  v_zone_id := public.kmd_try_uuid(p_payload->>'deliveryZoneId');
+
+  if not v_needs_shipping then
+    v_quoted := true;
+    v_shipping := 0;
+  elsif v_zone_id is null then
+    v_quoted := false;
+  else
+    select * into v_zone from public.delivery_zones where id = v_zone_id and is_active;
+    if not found then
+      return jsonb_build_object('status','FAILED','reason','DELIVERY_ZONE_NOT_FOUND',
+        'reasonText','That delivery area is not available.');
+    end if;
+    if v_zone.is_configured then
+      v_shipping := v_zone.shipping_fee;
+      if v_zone.free_shipping_threshold is not null and v_subtotal >= v_zone.free_shipping_threshold then
+        v_shipping := 0;
+      end if;
+    else
+      v_quoted := false;
+      v_shipping := 0;
+    end if;
+  end if;
+
+  select coalesce((value #>> '{}')::numeric, 72) into v_reservation_hours
+    from public.system_settings where key = 'stock_reservation_hours';
+  v_reservation_hours := coalesce(v_reservation_hours, 72);
+
+  select coalesce((value #>> '{}'), '1') into v_version
+    from public.system_settings where key = 'member_pricing_version';
+  v_version := coalesce(v_version, '1');
+
+  v_order_number := 'KMD-ORDER-' || lpad(nextval('public.kmd_order_seq')::text, 6, '0');
+
+  insert into public.orders (
+    order_number, buyer_profile_id, buyer_member_code, customer_type,
+    guest_name, guest_phone, guest_email,
+    delivery_zone_id, shipping_address, shipping_barangay, shipping_city,
+    shipping_province, shipping_postal_code,
+    subtotal, shipping_fee, total_amount, is_shipping_quoted,
+    payment_method, status, fulfillment_status, customer_notes, is_test
+  ) values (
+    v_order_number, v_profile.id,
+    case when v_is_member then v_profile.member_code else 'GUEST' end,
+    case when v_is_member then 'member' else 'guest' end,
+    v_guest_name, v_guest_phone, v_guest_email,
+    case when v_zone.id is null then null else v_zone.id end,
+    nullif(trim(coalesce(p_payload->>'shippingAddress','')), ''),
+    nullif(trim(coalesce(p_payload->>'shippingBarangay','')), ''),
+    nullif(trim(coalesce(p_payload->>'shippingCity','')), ''),
+    nullif(trim(coalesce(p_payload->>'shippingProvince','')), ''),
+    nullif(trim(coalesce(p_payload->>'shippingPostalCode','')), ''),
+    v_subtotal, v_shipping, v_subtotal + v_shipping, v_quoted,
+    v_payment_method, 'pending_payment', 'unfulfilled',
+    nullif(trim(coalesce(p_payload->>'customerNotes','')), ''),
+    coalesce(v_profile.is_test, false)
+  ) returning id, access_token into v_order_id, v_token;
+
+  for v_line in select * from jsonb_array_elements(v_items) loop
+    v_qty := (v_line->>'quantity')::int;
+    select * into v_product from public.products
+      where upper(sku) = upper(trim(v_line->>'sku'));
+
+    -- The same price the validation loop accepted, with the pricing that produced it.
+    v_pricing := public.kmd_price_snapshot(v_uid, v_product.id);
+    v_line_price := coalesce((v_pricing->>'price')::numeric, v_product.selling_price);
+
+    insert into public.order_items (
+      order_id, product_id, sku, product_name, quantity, unit_price, line_total,
+      pricing_category, pricing_rule_version, currency
+    ) values (
+      v_order_id, v_product.id, v_product.sku, v_product.name, v_qty,
+      v_line_price, v_line_price * v_qty,
+      case when coalesce((v_pricing->>'memberPricing')::boolean, false) then v_pricing->>'category' end,
+      v_version, 'PHP');
+
+    if v_product.track_inventory and not v_product.is_digital then
+      insert into public.stock_reservations (product_id, order_id, quantity, status, expires_at)
+      values (v_product.id, v_order_id, v_qty, 'held', now() + (v_reservation_hours || ' hours')::interval);
+
+      select * into v_inv from public.inventory where product_id = v_product.id for update;
+      if found and not v_inv.is_unlimited then
+        update public.inventory
+          set reserved_quantity = reserved_quantity + v_qty, updated_at = now()
+          where product_id = v_product.id;
+
+        insert into public.stock_movements (product_id, movement_type, delta, quantity_before, quantity_after, order_id, note)
+        values (v_product.id, 'reservation', -v_qty, v_inv.quantity_on_hand,
+                v_inv.quantity_on_hand, v_order_id, 'Reserved at checkout ' || v_order_number);
+      end if;
+    end if;
+  end loop;
+
+  insert into public.order_status_history (order_id, from_status, to_status, note, is_test)
+  values (v_order_id, null, 'pending_payment', 'Order placed at checkout', coalesce(v_profile.is_test,false));
+
+  perform public.kmd_audit(v_profile.id, 'ORDER_PLACED', v_profile.id, v_order_id,
+    'orders', v_order_id::text, null,
+    jsonb_build_object('orderNumber', v_order_number, 'total', v_subtotal + v_shipping,
+                       'items', jsonb_array_length(v_items), 'customerType',
+                       case when v_is_member then 'member' else 'guest' end,
+                       'paymentMethod', v_payment_method,
+                       'pricingCategory', v_category, 'pricingVersion', v_version),
+    'Order placed via the online store', coalesce(v_profile.is_test,false));
+
+  if v_payment_method is distinct from 'shopping_wallet' then
+    insert into public.notifications (profile_id, type, title, body, link, metadata)
+    select ur.user_id, 'order.created', 'New order ' || v_order_number,
+           'A new order is awaiting payment verification.',
+           '/admin/payment-verification',
+           jsonb_build_object('orderNumber', v_order_number, 'orderId', v_order_id)
+    from public.user_roles ur where ur.role in ('admin','super_admin');
+  end if;
+
+  return jsonb_build_object(
+    'status','CREATED', 'orderId', v_order_id, 'orderNumber', v_order_number,
+    'accessToken', v_token, 'subtotal', v_subtotal, 'shippingFee', v_shipping,
+    'shippingQuoted', v_quoted, 'totalAmount', v_subtotal + v_shipping,
+    'customerType', case when v_is_member then 'member' else 'guest' end,
+    'pricingCategory', v_category, 'pricingVersion', v_version, 'currency', 'PHP',
+    'reasonText','Order placed. It is awaiting payment verification.');
+end $$;
+
+grant execute on function public.kmd_checkout_place_order(jsonb) to anon, authenticated;

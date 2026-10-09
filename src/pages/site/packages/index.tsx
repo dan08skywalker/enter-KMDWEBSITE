@@ -140,6 +140,7 @@ export default function PackagesPage() {
                         regularPrice={pkg.regularPrice}
                         promoPrice={pkg.promoPrice}
                         effectivePrice={pkg.effectivePrice}
+                        sku={pkg.sku}
                         size="sm"
                         className="mt-4"
                       />

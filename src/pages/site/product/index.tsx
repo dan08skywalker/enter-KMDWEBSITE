@@ -274,6 +274,7 @@ export default function ProductDetailPage() {
                 regularPrice={product.regularPrice}
                 promoPrice={product.promoPrice}
                 effectivePrice={product.effectivePrice}
+                sku={product.sku}
                 size="lg"
               />
               <p className="mt-2 text-xs text-muted-foreground">

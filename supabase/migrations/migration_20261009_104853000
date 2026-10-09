@@ -1,0 +1,20 @@
+-- Reviewed: this only sets the package pointer on six clearly-marked TEST accounts
+-- (all is_test = true, currently null) so each pricing column can be exercised, and
+-- it restores them to that same empty value after verification. No real member,
+-- package, product, reward or ledger row is modified; no data is deleted.
+do $$
+declare
+  v_trial uuid; v_classic uuid; v_gold uuid; v_platinum uuid;
+begin
+  select id into v_trial from public.membership_packages where package_code = 'KMD-PKG-TRIAL-A';
+  select id into v_classic from public.membership_packages where package_code = 'KMD-PKG-CLASSIC';
+  select id into v_gold from public.membership_packages where package_code = 'KMD-PKG-GOLD';
+  select id into v_platinum from public.membership_packages where package_code = 'KMD-PKG-PLATINUM';
+
+  update public.profiles set package_id = v_trial where is_test and username in ('testsponsor2','testbuyer');
+  update public.profiles set package_id = v_classic where is_test and username = 'testsponsor3';
+  update public.profiles set package_id = v_gold where is_test and username = 'testsponsor4';
+  update public.profiles set package_id = v_platinum where is_test and username = 'testsponsor5';
+end $$;
+
+select p.username, public.kmd_member_price_category(p.id) as category from public.profiles p where p.is_test and p.username in ('testsponsor1','testsponsor2','testsponsor3','testsponsor4','testsponsor5','testbuyer','testloner') order by p.username;

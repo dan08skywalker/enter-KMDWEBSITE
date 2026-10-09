@@ -125,6 +125,7 @@ export default function HomePage() {
                       regularPrice={hero.regularPrice}
                       promoPrice={hero.promoPrice}
                       effectivePrice={hero.effectivePrice}
+                      sku={hero.sku}
                       size="sm"
                     />
                   </div>
@@ -285,6 +286,7 @@ export default function HomePage() {
                     regularPrice={dokudami.regularPrice}
                     promoPrice={dokudami.promoPrice}
                     effectivePrice={dokudami.effectivePrice}
+                    sku={dokudami.sku}
                     size="lg"
                   />
                   <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -361,6 +363,7 @@ export default function HomePage() {
                     regularPrice={powerpill.regularPrice}
                     promoPrice={powerpill.promoPrice}
                     effectivePrice={powerpill.effectivePrice}
+                    sku={powerpill.sku}
                     size="lg"
                   />
                   <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -436,6 +439,7 @@ export default function HomePage() {
                         regularPrice={entry.product.regularPrice}
                         promoPrice={entry.product.promoPrice}
                         effectivePrice={entry.product.effectivePrice}
+                        sku={entry.product.sku}
                         size="sm"
                       />
                       <Button asChild variant="outline" size="sm" className="mt-3 w-full">
@@ -500,6 +504,7 @@ export default function HomePage() {
                         regularPrice={pkg.regularPrice}
                         promoPrice={pkg.promoPrice}
                         effectivePrice={pkg.effectivePrice}
+                        sku={pkg.sku}
                         size="sm"
                         className="mt-3"
                       />

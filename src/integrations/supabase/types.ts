@@ -3709,6 +3709,49 @@ export type Database = {
           },
         ]
       }
+      member_prices: {
+        Row: {
+          category: string
+          created_at: string
+          id: string
+          price: number
+          product_id: string
+          sku: string
+          srp: number | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          category: string
+          created_at?: string
+          id?: string
+          price: number
+          product_id: string
+          sku: string
+          srp?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string
+          id?: string
+          price?: number
+          product_id?: string
+          sku?: string
+          srp?: number | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "member_prices_product_id_fkey"
+            columns: ["product_id"]
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       membership_packages: {
         Row: {
           created_at: string
@@ -3798,9 +3841,12 @@ export type Database = {
       order_items: {
         Row: {
           created_at: string
+          currency: string
           id: string
           line_total: number
           order_id: string
+          pricing_category: string | null
+          pricing_rule_version: string | null
           product_id: string
           product_name: string
           quantity: number
@@ -3809,9 +3855,12 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          currency?: string
           id?: string
           line_total?: number
           order_id: string
+          pricing_category?: string | null
+          pricing_rule_version?: string | null
           product_id: string
           product_name: string
           quantity: number
@@ -3820,9 +3869,12 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          currency?: string
           id?: string
           line_total?: number
           order_id?: string
+          pricing_category?: string | null
+          pricing_rule_version?: string | null
           product_id?: string
           product_name?: string
           quantity?: number
@@ -5284,6 +5336,10 @@ export type Database = {
         Args: { p_actor: string; p_dataset: string; p_filters?: Json }
         Returns: Json
       }
+      kmd_admin_pricing_matrix: {
+        Args: { p_actor: string }
+        Returns: Json
+      }
       kmd_admin_review_payment_account: {
         Args: {
           p_account_id: string
@@ -5309,6 +5365,15 @@ export type Database = {
           p_order_id: string
           p_status: string
           p_tracking?: string
+        }
+        Returns: Json
+      }
+      kmd_admin_set_member_price: {
+        Args: {
+          p_actor: string
+          p_category: string
+          p_price: number
+          p_product_id: string
         }
         Returns: Json
       }
@@ -5477,6 +5542,10 @@ export type Database = {
         Args: { p_identifier: string }
         Returns: Json
       }
+      kmd_effective_unit_price: {
+        Args: { p_member: string; p_product_id: string }
+        Returns: number
+      }
       kmd_has_super_admin: {
         Args: Record<PropertyKey, never>
         Returns: boolean
@@ -5509,6 +5578,14 @@ export type Database = {
         Args: { p_member: string }
         Returns: Json
       }
+      kmd_member_price_category: {
+        Args: { p_member: string }
+        Returns: string
+      }
+      kmd_member_pricing: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       kmd_my_wallet_balance: {
         Args: Record<PropertyKey, never>
         Returns: Json
@@ -5527,6 +5604,10 @@ export type Database = {
           p_type: string
         }
         Returns: string
+      }
+      kmd_price_snapshot: {
+        Args: { p_member: string; p_product_id: string }
+        Returns: Json
       }
       kmd_process_qualified_purchase: {
         Args: { p_actor?: string; p_order_id: string }

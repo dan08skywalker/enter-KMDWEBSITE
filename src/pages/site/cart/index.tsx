@@ -57,6 +57,14 @@ export default function CartPage() {
                       {formatPeso(line.unitPrice)} each
                       {line.isDigital ? " · digital, no delivery fee" : ""}
                     </p>
+                    {line.pricingCategory ? (
+                      <p className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
+                        <span className="font-semibold text-accent">Your member price</span>
+                        {line.listPrice && line.listPrice > line.unitPrice ? (
+                          <span className="kmd-price-strike">{formatPeso(line.listPrice)}</span>
+                        ) : null}
+                      </p>
+                    ) : null}
 
                     <div className="mt-3 flex flex-wrap items-center gap-3">
                       <QuantityStepper
