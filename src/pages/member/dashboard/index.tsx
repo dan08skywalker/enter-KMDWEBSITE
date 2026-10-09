@@ -5,7 +5,9 @@ import {
   CalendarClock,
   Coins,
   Gem,
+  Gift,
   ShieldAlert,
+  ShoppingBag,
   Sparkles,
   TrendingUp,
   Users,
@@ -20,12 +22,25 @@ import { StatCard } from "@/components/kmd/stat-card";
 import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
+import { LoyaltyCard, type LoyaltyTier } from "@/components/kmd/loyalty-card";
+import { LOYALTY_CARD_ASPECT } from "@/lib/kmd/constants";
 import { Points } from "@/components/kmd/amount";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 import { formatDateTime, formatPeso, formatPoints, formatRelative, toNumber } from "@/lib/kmd/format";
 import { ledgerStatus, transactionType } from "@/lib/kmd/labels";
 import type { LoyaltyLedgerRow, PointLedgerRow, Redemption } from "@/lib/kmd/types";
+
+/** Decorative leaf, drawn inline and kept at very low opacity behind content. */
+function LeafAccent({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 100 100" aria-hidden="true" className={className}>
+      <path d="M6 94C6 48 36 10 96 6c4 54-26 88-90 88z" fill="hsl(146 62% 34%)" />
+      <path d="M10 90C38 62 64 34 92 12" stroke="hsl(96 58% 45%)" strokeWidth="3" fill="none" />
+    </svg>
+  );
+}
 
 function startOf(unit: "day" | "week" | "month"): Date {
   const now = new Date();
@@ -43,6 +58,36 @@ export default function MemberDashboard() {
   const rate = usePointRate();
   const ledger = useMemberLedger();
   const [pendingRedemptions, setPendingRedemptions] = useState<Redemption[]>([]);
+  const [cardTier, setCardTier] = useState<LoyaltyTier | null>(null);
+  const [cardTierLoading, setCardTierLoading] = useState(true);
+
+  useEffect(() => {
+    const packageId = profile?.package_id;
+    if (!packageId) {
+      setCardTier(null);
+      setCardTierLoading(false);
+      return;
+    }
+
+    let active = true;
+    setCardTierLoading(true);
+    void (async () => {
+      const { data, error } = await supabase
+        .from("membership_packages")
+        .select("tier")
+        .eq("id", packageId)
+        .maybeSingle();
+
+      if (error) console.error("Could not load the loyalty card tier:", error.message);
+      if (!active) return;
+      setCardTier(((data?.tier as LoyaltyTier | undefined) ?? null));
+      setCardTierLoading(false);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [profile?.package_id]);
 
   useEffect(() => {
     let active = true;
@@ -214,7 +259,82 @@ export default function MemberDashboard() {
         </div>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)]">
+        {/* ---- the member's own card, with their shopping and redemption actions ---- */}
+        <div className="space-y-4">
+          <div className="kmd-panel relative overflow-hidden p-4 sm:p-5">
+            <LeafAccent className="pointer-events-none absolute -right-6 -top-8 h-28 w-28 rotate-[24deg] opacity-[0.12]" />
+            <div className="relative mb-4 flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-base font-semibold">My Loyalty Card</h2>
+              <Button asChild variant="ghost" size="sm">
+                <Link to="/app/loyalty-cards">
+                  Card details
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+
+            <div className="relative flex justify-center sm:justify-start">
+              {cardTierLoading ? (
+                <Skeleton className={cn("w-full max-w-[420px] rounded-2xl", LOYALTY_CARD_ASPECT)} />
+              ) : cardTier && profile ? (
+                <LoyaltyCard
+                  tier={cardTier}
+                  memberName={profile.full_name}
+                  memberCode={profile.member_code}
+                  activationDate={profile.activation_date}
+                  status={profile.account_status}
+                />
+              ) : (
+                <div className="w-full rounded-2xl border border-dashed p-5 text-center sm:text-left">
+                  <p className="text-sm font-semibold">No loyalty card yet</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    A card is issued when your membership package is activated. Your balances and team
+                    are unaffected.
+                  </p>
+                  <Button asChild variant="outline" size="sm" className="mt-3">
+                    <Link to="/packages">See membership packages</Link>
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Link
+              to="/shop"
+              className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <ShoppingBag className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-bold uppercase tracking-wide text-primary">
+                  Shop now
+                </span>
+                <span className="block text-[11px] text-muted-foreground">Browse products</span>
+              </span>
+            </Link>
+
+            <Link
+              to="/app/redeem"
+              className="flex items-center gap-3 rounded-xl border border-primary/20 bg-primary/5 p-4 transition-colors hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/12 text-primary">
+                <Gift className="h-5 w-5" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-xs font-bold uppercase tracking-wide text-primary">
+                  Redeem points
+                </span>
+                <span className="block text-[11px] text-muted-foreground">Use your points</span>
+              </span>
+            </Link>
+          </div>
+        </div>
+
+        {/* ---- the four primary balances, two by two ---- */}
+        <div className="grid gap-4 sm:grid-cols-2">
         <StatCard
           label="Available Unilevel Points"
           value={formatPoints(ledger.availablePoints)}
@@ -247,6 +367,7 @@ export default function MemberDashboard() {
           accent="success"
           loading={ledger.loading}
         />
+        </div>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
