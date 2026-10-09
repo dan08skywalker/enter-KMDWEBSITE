@@ -219,7 +219,7 @@ export default function AdminPackages() {
                 value={form.packageCode}
                 onChange={(event) => setForm({ ...form, packageCode: event.target.value })}
                 disabled={Boolean(editing)}
-                placeholder="KMD-PKG-TRIAL"
+                placeholder="KMD-PKG-TRIAL-B"
                 className="font-mono"
               />
             </div>

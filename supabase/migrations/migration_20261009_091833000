@@ -1,0 +1,8 @@
+-- Test isolation: the four test accounts that bought Trial Pack - B during
+-- verification had no package on their profile beforehand (every other seeded test
+-- member is still null). Their purchase records in orders/order_items/ledgers are
+-- left untouched; only this current-state pointer is returned to its prior value.
+update public.profiles
+   set package_id = null
+ where is_test
+   and package_id = (select id from public.membership_packages where package_code = 'KMD-PKG-TRIAL-B');

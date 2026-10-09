@@ -1,0 +1,79 @@
+-- Rerun of the same Trial update, to prove it is safe to repeat.
+-- Reviewed: same guarded Trial-only writes as before, no DELETE/TRUNCATE/DROP.
+do $$
+declare
+  v_pkg_a uuid;
+  v_prod_a uuid;
+  v_prod_b uuid;
+  v_pkg_b uuid;
+  v_sku_a text;
+begin
+  select id, product_id into v_pkg_a, v_prod_a from public.membership_packages where package_code = 'KMD-PKG-TRIAL';
+  if v_pkg_a is null then
+    select id, product_id into v_pkg_a, v_prod_a from public.membership_packages where package_code = 'KMD-PKG-TRIAL-A';
+    if v_pkg_a is null then
+      raise exception 'CONFLICT: neither KMD-PKG-TRIAL nor KMD-PKG-TRIAL-A exists - nothing to rename';
+    end if;
+    raise notice 'KMD-PKG-TRIAL-A already present; no rename needed';
+  else
+    if exists (select 1 from public.membership_packages where package_code = 'KMD-PKG-TRIAL-A' and id <> v_pkg_a) then
+      raise exception 'CONFLICT: package code KMD-PKG-TRIAL-A already belongs to a different package';
+    end if;
+    update public.membership_packages set package_code = 'KMD-PKG-TRIAL-A', name = 'Trial Pack - A' where id = v_pkg_a;
+  end if;
+
+  if v_prod_a is not null then
+    select sku into v_sku_a from public.products where id = v_prod_a;
+    if v_sku_a is distinct from 'KMD-TRIAL-001' then
+      raise exception 'CONFLICT: KMD-PKG-TRIAL-A is not linked to SKU KMD-TRIAL-001 (found %)', v_sku_a;
+    end if;
+    update public.products set name = 'Trial Pack Bundle Dokudami' where id = v_prod_a;
+  end if;
+
+  if exists (select 1 from public.products where sku = 'KMD-TRIAL-002' and (product_type <> 'membership' or name <> 'Trial Pack Bundle PowerPill')) then
+    raise exception 'CONFLICT: SKU KMD-TRIAL-002 already belongs to an unrelated product';
+  end if;
+  select id into v_prod_b from public.products where sku = 'KMD-TRIAL-002';
+  if v_prod_b is null then
+    if exists (select 1 from public.products where product_code = 'KMD-PROD-0005') then
+      raise exception 'CONFLICT: product code KMD-PROD-0005 already belongs to another product';
+    end if;
+    insert into public.products (product_code, name, sku, membership_code, category, product_type, selling_price, is_active, track_inventory, is_digital, sort_order)
+    values ('KMD-PROD-0005', 'Trial Pack Bundle PowerPill', 'KMD-TRIAL-002', 'KMD-MC-TRIAL-B', 'Membership Bundle', 'membership', 998.00, true, true, false, 10)
+    returning id into v_prod_b;
+  else
+    update public.products set name = 'Trial Pack Bundle PowerPill', product_type = 'membership', selling_price = 998.00, is_active = true, track_inventory = true where id = v_prod_b;
+  end if;
+
+  if not exists (select 1 from public.inventory where product_id = v_prod_b) then
+    insert into public.inventory (product_id, quantity_on_hand, reserved_quantity, is_unlimited, low_stock_threshold)
+    values (v_prod_b, 10000, 0, true, 5);
+  end if;
+
+  if exists (select 1 from public.membership_packages where package_code = 'KMD-PKG-TRIAL-B' and product_id <> v_prod_b) then
+    raise exception 'CONFLICT: package code KMD-PKG-TRIAL-B already belongs to a different product';
+  end if;
+  select id into v_pkg_b from public.membership_packages where package_code = 'KMD-PKG-TRIAL-B';
+  if v_pkg_b is null then
+    insert into public.membership_packages (package_code, name, tier, product_id, is_active)
+    values ('KMD-PKG-TRIAL-B', 'Trial Pack - B', 'trial', v_prod_b, true) returning id into v_pkg_b;
+  else
+    update public.membership_packages set name = 'Trial Pack - B', tier = 'trial', product_id = v_prod_b, is_active = true where id = v_pkg_b;
+  end if;
+
+  insert into public.reward_configurations (product_id, sku, level1_points, level2_points, level3_points, level4_points, level5_points, loyalty_credit, loyalty_beneficiary_level, is_active)
+  values (v_prod_b, 'KMD-TRIAL-002', 100, 10, 5, 5, 5, 0, 1, true)
+  on conflict (product_id) do update set
+    sku = excluded.sku, level1_points = excluded.level1_points, level2_points = excluded.level2_points,
+    level3_points = excluded.level3_points, level4_points = excluded.level4_points,
+    level5_points = excluded.level5_points, loyalty_credit = excluded.loyalty_credit,
+    loyalty_beneficiary_level = excluded.loyalty_beneficiary_level, is_active = excluded.is_active;
+end $$;
+
+select (select count(*) from public.membership_packages) as packages,
+       (select count(*) from public.membership_packages where package_code like 'KMD-PKG-TRIAL%') as trial_packages,
+       (select count(*) from public.products) as products,
+       (select count(*) from public.products where sku like 'KMD-TRIAL%') as trial_products,
+       (select count(*) from public.products where product_code = 'KMD-PROD-0005') as code_0005_rows,
+       (select count(*) from public.inventory where product_id = (select id from public.products where sku='KMD-TRIAL-002')) as trial_b_inventory_rows,
+       (select count(*) from public.reward_configurations) as reward_rows;
