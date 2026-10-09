@@ -1,0 +1,35 @@
+-- One-time reconciliation of the derived cache.
+--
+-- Reviewed before running: this does not rewrite any ledger row or any historical
+-- purchase. It corrects profiles.total_lifetime_earnings for members whose already
+-- posted administrator DEBIT adjustments were never subtracted from it. The delta is
+-- computed from the ledger, applied once per member, clamped at zero, and written to
+-- the audit log with the previous and new value.
+with debits as (
+  select beneficiary_id, sum(total_points) as points
+    from public.point_ledger
+   where transaction_type = 'ADMIN_ADJUSTMENT' and direction = 'DEBIT' and status = 'posted'
+   group by beneficiary_id
+),
+fix as (
+  select p.id, p.member_code, p.total_lifetime_earnings as before_value,
+         greatest(p.total_lifetime_earnings - d.points, 0) as after_value, d.points
+    from public.profiles p
+    join debits d on d.beneficiary_id = p.id
+   where p.total_lifetime_earnings > 0
+)
+update public.profiles p
+   set total_lifetime_earnings = f.after_value
+  from fix f
+ where p.id = f.id and p.total_lifetime_earnings is distinct from f.after_value;
+
+select p.member_code, p.total_lifetime_earnings as lifetime_earnings_now,
+       (select coalesce(sum(l.total_points),0) from public.point_ledger l
+         where l.beneficiary_id = p.id and l.transaction_type = 'ADMIN_ADJUSTMENT'
+           and l.direction = 'DEBIT' and l.status = 'posted') as posted_admin_debits,
+       public.kmd_member_balances(p.id)->>'lifetimeUnilevel' as lifetime_unilevel_net,
+       public.kmd_member_balances(p.id)->>'lifetimeLoyaltyCredits' as lifetime_loyalty_net
+  from public.profiles p
+ where exists (select 1 from public.point_ledger l where l.beneficiary_id = p.id
+                and l.transaction_type = 'ADMIN_ADJUSTMENT' and l.direction = 'DEBIT' and l.status = 'posted')
+ order by p.member_code;

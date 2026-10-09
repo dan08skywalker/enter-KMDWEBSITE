@@ -1,0 +1,1 @@
+select public.kmd_adjust_points((select id from public.profiles where username='testloner'), 100, 'DEBIT', 'Isolated test: administrator debit (the example)', (select id from public.profiles where username='kmdadmin'), 'lifetest-debit-100')::text as step3_debit_100;

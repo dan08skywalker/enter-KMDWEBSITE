@@ -21,13 +21,12 @@ export default function MemberLoyaltyCredits() {
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
 
-  const lifetime = useMemo(
-    () =>
-      ledger.loyaltyRows
-        .filter((row) => row.direction === "CREDIT" && row.status === "posted")
-        .reduce((sum, row) => sum + toNumber(row.credit_amount), 0),
-    [ledger.loyaltyRows],
-  );
+  /**
+   * Lifetime loyalty credits, net of posted administrator debit adjustments, read
+   * from the ledger on the server: the rows on this page are only a window, and the
+   * same debit entry must be counted once, not deducted twice.
+   */
+  const lifetime = ledger.lifetimeLoyaltyCredits;
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -103,7 +102,7 @@ export default function MemberLoyaltyCredits() {
         <StatCard
           label="Lifetime Loyalty Credits"
           value={formatPoints(lifetime)}
-          hint={`${ledger.loyaltyRows.length} ledger entries`}
+          hint="Net of posted administrator adjustments"
           accent="primary"
           loading={ledger.loading}
         />

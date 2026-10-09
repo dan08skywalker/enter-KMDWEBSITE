@@ -77,6 +77,7 @@ export function LoyaltyAdjustmentPanel() {
   const [error, setError] = useState<string | null>(null);
 
   const balance = useMemo(() => deriveBalance(ledger), [ledger]);
+  const [lifetimeLoyalty, setLifetimeLoyalty] = useState(0);
 
   const loadLedger = useCallback(async (memberId: string) => {
     setLoadingLedger(true);
@@ -93,6 +94,16 @@ export function LoyaltyAdjustmentPanel() {
     } else {
       setLedger((data ?? []) as unknown as LoyaltyLedgerRow[]);
     }
+    // Lifetime loyalty credits are net of posted administrator debit adjustments,
+    // so they come from the ledger on the server rather than from this window of rows.
+    const { data: summary, error: summaryError } = await supabase.rpc("kmd_member_points_summary", {
+      p_member: memberId,
+    });
+    if (summaryError) console.error("Could not read the lifetime loyalty credits:", summaryError.message);
+    setLifetimeLoyalty(
+      toNumber((summary as Record<string, unknown> | null)?.lifetimeLoyaltyCredits),
+    );
+
     setLoadingLedger(false);
   }, []);
 
@@ -341,6 +352,9 @@ export function LoyaltyAdjustmentPanel() {
                   ) : (
                     <p className="mt-1 text-2xl font-bold tabular-nums">{formatPoints(balance)}</p>
                   )}
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Lifetime {formatPoints(lifetimeLoyalty)} · net of adjustments
+                  </p>
                 </div>
               </div>
 

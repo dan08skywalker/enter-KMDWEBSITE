@@ -1,0 +1,70 @@
+-- ============================================================================
+-- Administrator debit adjustments also reduce the lifetime totals
+--
+-- A debit adjustment is ONE immutable ledger entry. The lifetime figures below are
+-- different summaries of that same entry, derived from the ledger, so nothing is
+-- deducted twice and no history is rewritten. Redemptions, payouts, wallet
+-- conversions and spending are untouched by this: only posted administrator debit
+-- adjustments reduce a lifetime total.
+-- ============================================================================
+
+create or replace function public.kmd_member_balances(p_member uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  with pts as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then total_points end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then total_points end), 0) as debits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'pending' then total_points end), 0) as pending_debits,
+      -- gross unilevel commission
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted'
+                         and transaction_type = 'UNILEVEL_BONUS' then total_points end), 0) as unilevel_credits,
+      -- administrator adjustments, in both directions
+      coalesce(sum(case when status = 'posted' and transaction_type = 'ADMIN_ADJUSTMENT'
+                         and direction = 'CREDIT' then total_points end), 0) as admin_credit,
+      coalesce(sum(case when status = 'posted' and transaction_type = 'ADMIN_ADJUSTMENT'
+                         and direction = 'DEBIT' then total_points end), 0) as admin_debit
+    from public.point_ledger where beneficiary_id = p_member
+  ), loy as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then credit_amount end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then credit_amount end), 0) as debits,
+      coalesce(sum(case when direction = 'DEBIT' and status = 'posted'
+                         and trigger_event = 'admin_adjustment' then credit_amount end), 0) as admin_debit
+    from public.loyalty_credit_ledger where beneficiary_id = p_member
+  ), wal as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then amount end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then amount end), 0) as debits
+    from public.shopping_wallet_ledger where member_id = p_member
+  )
+  select jsonb_build_object(
+    'unilevelPoints',   pts.credits - pts.debits,
+    'pendingPoints',    pts.pending_debits,
+    'availablePoints',  pts.credits - pts.debits - pts.pending_debits,
+    'loyaltyCredits',   loy.credits - loy.debits,
+    'shoppingWallet',   wal.credits - wal.debits,
+    -- unchanged: every posted point credit, kept for existing consumers
+    'lifetimeEarnings', pts.credits,
+    -- net lifetime unilevel after posted administrator adjustments
+    'lifetimeUnilevel', pts.unilevel_credits + pts.admin_credit - pts.admin_debit,
+    'unilevelAdminAdjustments', pts.admin_credit - pts.admin_debit,
+    -- net lifetime loyalty credits after posted administrator debit adjustments
+    'lifetimeLoyaltyCredits', loy.credits - loy.admin_debit,
+    'loyaltyAdminAdjustments', loy.credits - loy.debits - (loy.credits - loy.admin_debit)
+  ) from pts, loy, wal;
+$$;
+
+revoke all on function public.kmd_member_balances(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_member_balances(uuid) to service_role;
+
+-- The member-facing summary (self, or an administrator) already wraps this function,
+-- so it now reports the net lifetime figures too. It is granted to authenticated.
+select p.member_code,
+       public.kmd_member_points_summary(p.id)->>'availablePoints' as available,
+       public.kmd_member_points_summary(p.id)->>'lifetimeUnilevel' as lifetime_unilevel_net,
+       public.kmd_member_points_summary(p.id)->>'lifetimeLoyaltyCredits' as lifetime_loyalty_net,
+       p.total_lifetime_earnings as cached_lifetime_earnings
+  from public.profiles p
+ where p.member_code in ('KMD-0000-0000-0000-0005','KMD-0000-0000-0000-0013','KMD-0000-0000-0000-0014','KMD-0000-0000-0000-0017')
+ order by p.member_code;

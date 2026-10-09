@@ -1,0 +1,4 @@
+-- Duplicate submission (same adjustment ID) and an invalid deduction must both
+-- leave every total untouched.
+select public.kmd_adjust_points((select id from public.profiles where username='testloner'), 100, 'DEBIT', 'Isolated test: administrator debit (the example)', (select id from public.profiles where username='kmdadmin'), 'lifetest-debit-100')::text as step4_duplicate_replay;
+select public.kmd_adjust_points((select id from public.profiles where username='testloner'), 999999, 'DEBIT', 'Isolated test: deduction beyond the available balance', (select id from public.profiles where username='kmdadmin'), 'lifetest-overdraw')::text as step5_over_available_debit;

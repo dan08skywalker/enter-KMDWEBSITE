@@ -51,6 +51,10 @@ interface MemberBalances {
   availablePoints: number;
   unilevelPoints: number;
   pendingPoints: number;
+  /** Net lifetime unilevel after posted administrator adjustments. */
+  lifetimeUnilevel: number;
+  /** Net lifetime loyalty credits after posted administrator adjustments. */
+  lifetimeLoyaltyCredits: number;
 }
 
 /**
@@ -95,6 +99,8 @@ export function PointAdjustmentPanel() {
         availablePoints: toNumber(row.availablePoints),
         unilevelPoints: toNumber(row.unilevelPoints),
         pendingPoints: toNumber(row.pendingPoints),
+        lifetimeUnilevel: toNumber(row.lifetimeUnilevel),
+        lifetimeLoyaltyCredits: toNumber(row.lifetimeLoyaltyCredits),
       });
     }
     setLoadingBalances(false);
@@ -430,6 +436,11 @@ export function PointAdjustmentPanel() {
                       : `Total ${formatPoints(balances?.unilevelPoints ?? 0)}${
                           held > 0 ? ` · ${formatPoints(held)} held for redemptions` : ""
                         }`}
+                  </p>
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    {loadingBalances
+                      ? ""
+                      : `Lifetime ${formatPoints(balances?.lifetimeUnilevel ?? 0)} · net of posted adjustments`}
                   </p>
                 </div>
               </div>

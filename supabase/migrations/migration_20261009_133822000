@@ -1,0 +1,6 @@
+-- Correction by linked compensating entry (never by editing history).
+select public.kmd_adjust_points((select id from public.profiles where username='testloner'), 100, 'CREDIT', 'Reversal of the isolated test debit (linked compensating entry)', (select id from public.profiles where username='kmdadmin'), 'lifetest-compensate-100')::text as step6_compensating_credit;
+
+-- Loyalty example: credit 80, then deduct 5.
+select public.kmd_adjust_loyalty_credits((select id from public.profiles where username='testloner'), 80, 'CREDIT', 'Isolated test: loyalty credit', (select id from public.profiles where username='kmdadmin'), 'loytest-credit-80')::text as step7a_loyalty_credit_80;
+select public.kmd_adjust_loyalty_credits((select id from public.profiles where username='testloner'), 5, 'DEBIT', 'Isolated test: loyalty debit (the example)', (select id from public.profiles where username='kmdadmin'), 'loytest-debit-5')::text as step7b_loyalty_debit_5;

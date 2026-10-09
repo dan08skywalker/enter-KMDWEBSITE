@@ -6,6 +6,10 @@ import type { LoyaltyLedgerRow, PointLedgerRow, WalletLedgerRow } from "@/lib/km
 
 export interface MemberLedger {
   loading: boolean;
+  /** Net lifetime unilevel after posted administrator adjustments (server-derived). */
+  lifetimeUnilevelNet: number;
+  /** Net lifetime loyalty credits after posted administrator debit adjustments. */
+  lifetimeLoyaltyCredits: number;
   pointRows: PointLedgerRow[];
   loyaltyRows: LoyaltyLedgerRow[];
   walletRows: WalletLedgerRow[];
@@ -30,17 +34,21 @@ export function useMemberLedger(): MemberLedger {
   const [pointRows, setPointRows] = useState<PointLedgerRow[]>([]);
   const [loyaltyRows, setLoyaltyRows] = useState<LoyaltyLedgerRow[]>([]);
   const [walletRows, setWalletRows] = useState<WalletLedgerRow[]>([]);
+  const [lifetimeUnilevelNet, setLifetimeUnilevelNet] = useState(0);
+  const [lifetimeLoyaltyCredits, setLifetimeLoyaltyCredits] = useState(0);
 
   const load = useCallback(async () => {
     if (!user) {
       setPointRows([]);
       setLoyaltyRows([]);
       setWalletRows([]);
+      setLifetimeUnilevelNet(0);
+      setLifetimeLoyaltyCredits(0);
       setLoading(false);
       return;
     }
 
-    const [points, loyalty, wallet] = await Promise.all([
+    const [points, loyalty, wallet, summary] = await Promise.all([
       supabase
         .from("point_ledger")
         .select("*")
@@ -56,11 +64,20 @@ export function useMemberLedger(): MemberLedger {
         .select("*")
         .order("created_at", { ascending: false })
         .limit(300),
+      // Lifetime totals are net of posted administrator adjustments, so they are
+      // read from the ledger on the server rather than summed from this page's
+      // window of rows.
+      supabase.rpc("kmd_member_points_summary", { p_member: user.id }),
     ]);
 
     if (points.error) console.error("Could not load point ledger:", points.error.message);
     if (loyalty.error) console.error("Could not load loyalty ledger:", loyalty.error.message);
     if (wallet.error) console.error("Could not load wallet ledger:", wallet.error.message);
+
+    const lifetime = (summary.data ?? null) as Record<string, unknown> | null;
+    if (summary.error) console.error("Could not read the lifetime totals:", summary.error.message);
+    setLifetimeUnilevelNet(toNumber(lifetime?.lifetimeUnilevel));
+    setLifetimeLoyaltyCredits(toNumber(lifetime?.lifetimeLoyaltyCredits));
 
     setPointRows((points.data ?? []) as unknown as PointLedgerRow[]);
     setLoyaltyRows((loyalty.data ?? []) as unknown as LoyaltyLedgerRow[]);
@@ -125,5 +142,14 @@ export function useMemberLedger(): MemberLedger {
     };
   }, [pointRows, loyaltyRows, walletRows]);
 
-  return { loading, pointRows, loyaltyRows, walletRows, ...derived, reload: load };
+  return {
+    loading,
+    pointRows,
+    loyaltyRows,
+    walletRows,
+    lifetimeUnilevelNet,
+    lifetimeLoyaltyCredits,
+    ...derived,
+    reload: load,
+  };
 }

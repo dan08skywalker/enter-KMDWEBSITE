@@ -1,0 +1,7 @@
+-- Ordinary conversion: it must keep reducing only the spendable balance, never the
+-- lifetime totals.
+select public.kmd_convert_balance(
+  (select id from public.profiles where username='testloner'),
+  'POINTS_TO_WALLET', 400,
+  (select id from public.profiles where username='kmdadmin'),
+  'lifetest-conversion')::text as step2_wallet_conversion_400;

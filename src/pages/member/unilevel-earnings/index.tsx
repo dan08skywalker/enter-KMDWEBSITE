@@ -134,8 +134,8 @@ export default function MemberUnilevelEarnings() {
         />
         <StatCard
           label="Lifetime Unilevel"
-          value={formatPoints(ledger.lifetimePoints)}
-          hint={`${unilevelRows.length} ledger entries`}
+          value={formatPoints(ledger.lifetimeUnilevelNet)}
+          hint="Net of posted administrator adjustments"
           accent="success"
           loading={ledger.loading}
         />

@@ -1,0 +1,44 @@
+create or replace function public.kmd_member_balances(p_member uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  with pts as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then total_points end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then total_points end), 0) as debits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'pending' then total_points end), 0) as pending_debits,
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted'
+                         and transaction_type = 'UNILEVEL_BONUS' then total_points end), 0) as unilevel_credits,
+      coalesce(sum(case when status = 'posted' and transaction_type = 'ADMIN_ADJUSTMENT'
+                         and direction = 'CREDIT' then total_points end), 0) as admin_credit,
+      coalesce(sum(case when status = 'posted' and transaction_type = 'ADMIN_ADJUSTMENT'
+                         and direction = 'DEBIT' then total_points end), 0) as admin_debit
+    from public.point_ledger where beneficiary_id = p_member
+  ), loy as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then credit_amount end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then credit_amount end), 0) as debits,
+      coalesce(sum(case when direction = 'DEBIT' and status = 'posted'
+                         and trigger_event = 'admin_adjustment' then credit_amount end), 0) as admin_debit
+    from public.loyalty_credit_ledger where beneficiary_id = p_member
+  ), wal as (
+    select
+      coalesce(sum(case when direction = 'CREDIT' and status = 'posted' then amount end), 0) as credits,
+      coalesce(sum(case when direction = 'DEBIT'  and status = 'posted' then amount end), 0) as debits
+    from public.shopping_wallet_ledger where member_id = p_member
+  )
+  select jsonb_build_object(
+    'unilevelPoints',   pts.credits - pts.debits,
+    'pendingPoints',    pts.pending_debits,
+    'availablePoints',  pts.credits - pts.debits - pts.pending_debits,
+    'loyaltyCredits',   loy.credits - loy.debits,
+    'shoppingWallet',   wal.credits - wal.debits,
+    'lifetimeEarnings', pts.credits,
+    'lifetimeUnilevel', pts.unilevel_credits + pts.admin_credit - pts.admin_debit,
+    'unilevelAdminAdjustments', pts.admin_credit - pts.admin_debit,
+    'lifetimeLoyaltyCredits', loy.credits - loy.admin_debit,
+    'loyaltyAdminDebits', loy.admin_debit
+  ) from pts, loy, wal;
+$$;
+
+revoke all on function public.kmd_member_balances(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_member_balances(uuid) to service_role;

@@ -346,7 +346,7 @@ export default function MemberDashboard() {
         <StatCard
           label="Loyalty Credits"
           value={formatPoints(ledger.loyaltyCredits)}
-          hint="Separate loyalty ledger"
+          hint={`Lifetime ${formatPoints(ledger.lifetimeLoyaltyCredits)} · net of adjustments`}
           icon={Sparkles}
           accent="primary"
           loading={ledger.loading}
@@ -375,19 +375,30 @@ export default function MemberDashboard() {
           { label: "Today", value: earnings.today },
           { label: "This Week", value: earnings.thisWeek },
           { label: "This Month", value: earnings.thisMonth },
-          { label: "Lifetime Unilevel", value: ledger.lifetimePoints },
+          { label: "Lifetime Unilevel", value: ledger.lifetimeUnilevelNet, netOfAdjustments: true },
         ].map((item) => (
           <div key={item.label} className="kmd-panel p-4">
-            <p className="kmd-label">{item.label}</p>
+            <p className="kmd-label" title={item.netOfAdjustments
+              ? "Net of posted administrator debit adjustments"
+              : undefined}>
+              {item.label}
+            </p>
             {ledger.loading ? (
               <Skeleton className="mt-2 h-6 w-20" />
             ) : (
-              <p className="mt-1.5 flex items-baseline gap-2">
-                <span className="text-lg font-bold tabular-nums">{formatPoints(item.value)}</span>
-                <span className="text-[11px] text-muted-foreground">
-                  {formatPeso(item.value, rate)}
-                </span>
-              </p>
+              <>
+                <p className="mt-1.5 flex items-baseline gap-2">
+                  <span className="text-lg font-bold tabular-nums">{formatPoints(item.value)}</span>
+                  <span className="text-[11px] text-muted-foreground">
+                    {formatPeso(item.value, rate)}
+                  </span>
+                </p>
+                {item.netOfAdjustments ? (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Net of posted administrator adjustments
+                  </p>
+                ) : null}
+              </>
             )}
           </div>
         ))}

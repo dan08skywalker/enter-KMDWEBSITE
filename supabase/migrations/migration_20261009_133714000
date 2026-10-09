@@ -1,0 +1,1 @@
+select public.kmd_adjust_points((select id from public.profiles where username='testloner'), 1500, 'CREDIT', 'Isolated test: opening credit', (select id from public.profiles where username='kmdadmin'), 'lifetest-credit-1500')::text as step1_credit_1500;

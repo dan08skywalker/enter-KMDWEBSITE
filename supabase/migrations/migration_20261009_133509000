@@ -1,0 +1,164 @@
+create or replace function public.kmd_adjust_points(
+  p_member uuid,
+  p_points numeric,
+  p_direction text,
+  p_reason text,
+  p_actor uuid,
+  p_idempotency_key text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_member public.profiles%rowtype;
+  v_direction text := upper(trim(coalesce(p_direction, '')));
+  v_points numeric(14,2);
+  v_reason text := nullif(trim(coalesce(p_reason, '')), '');
+  v_key text := nullif(trim(coalesce(p_idempotency_key, '')), '');
+  v_balances jsonb;
+  v_available numeric(14,2);
+  v_held numeric(14,2);
+  v_before numeric(14,2);
+  v_after numeric(14,2);
+  v_txn text;
+  v_rate numeric(14,4);
+  v_earnings_after numeric(14,2);
+  v_existing public.point_ledger%rowtype;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required');
+  end if;
+
+  if v_direction not in ('CREDIT','DEBIT') then
+    return jsonb_build_object('status','FAILED','reason','INVALID_DIRECTION',
+      'reasonText','Adjustment direction must be CREDIT or DEBIT');
+  end if;
+
+  if p_points is null or p_points <= 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_POINT_AMOUNT',
+      'reasonText','Adjustment points must be greater than zero');
+  end if;
+
+  v_points := round(p_points, 2);
+  if v_points > 9999999.99 then
+    return jsonb_build_object('status','FAILED','reason','AMOUNT_TOO_LARGE',
+      'reasonText','That is larger than a single adjustment allows');
+  end if;
+
+  if v_reason is null then
+    return jsonb_build_object('status','FAILED','reason','REASON_REQUIRED',
+      'reasonText','A reason is required for an adjustment');
+  end if;
+
+  select coalesce((value #>> '{}')::numeric, 1) into v_rate
+    from public.system_settings where key = 'point_to_peso_rate';
+  v_rate := coalesce(v_rate, 1);
+
+  if v_key is not null then
+    select * into v_existing from public.point_ledger
+      where idempotency_key = 'admin-adjust:' || v_key;
+    if found then
+      return jsonb_build_object('status','DUPLICATE','reason','DUPLICATE_SUBMISSION',
+        'transactionId', v_existing.transaction_id,
+        'memberCode', v_existing.beneficiary_member_code,
+        'direction', v_existing.direction,
+        'amount', v_existing.total_points,
+        'reasonText','This adjustment was already posted as ' || v_existing.transaction_id || ', so nothing was changed again.');
+    end if;
+  end if;
+
+  select * into v_member from public.profiles where id = p_member for update;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','MEMBER_NOT_FOUND',
+      'reasonText','Member record not found');
+  end if;
+
+  v_balances := public.kmd_member_balances(p_member);
+  v_available := coalesce((v_balances->>'availablePoints')::numeric, 0);
+  v_held := coalesce((v_balances->>'pendingPoints')::numeric, 0);
+  v_before := coalesce((v_balances->>'unilevelPoints')::numeric, 0);
+
+  if v_direction = 'DEBIT' and v_points > v_available then
+    return jsonb_build_object('status','FAILED','reason','INSUFFICIENT_POINTS',
+      'reasonText', case when v_available <= 0
+        then 'This member has no available Unilevel Points to deduct.'
+        else 'That deduction is larger than the available balance. The most that can be deducted is '
+             || to_char(v_available, 'FM999999999990.00') || '.' end,
+      'available', v_available, 'requested', v_points, 'held', v_held);
+  end if;
+
+  v_after := case when v_direction = 'CREDIT' then v_before + v_points else v_before - v_points end;
+
+  if v_after < 0 then
+    return jsonb_build_object('status','FAILED','reason','NEGATIVE_BALANCE',
+      'reasonText','That adjustment would take the balance below zero.');
+  end if;
+
+  v_txn := 'KMD-PT-' || lpad(nextval('public.kmd_point_txn_seq')::text, 8, '0');
+
+  insert into public.point_ledger (
+    transaction_id, beneficiary_id, beneficiary_member_code, total_points,
+    reward_type, transaction_type, direction, status, trigger_event, posted_at,
+    processed_by, idempotency_key, note, is_test, balance_before, balance_after
+  ) values (
+    v_txn, p_member, v_member.member_code, v_points,
+    'ADMIN_ADJUSTMENT','ADMIN_ADJUSTMENT', v_direction, 'posted','admin_adjustment', now(),
+    p_actor,
+    case when v_key is null then null else 'admin-adjust:' || v_key end,
+    v_reason, v_member.is_test, v_before, v_after
+  );
+
+  v_earnings_after := greatest(
+    v_member.total_lifetime_earnings
+      + (case when v_direction = 'CREDIT' then v_points else -(v_points * v_rate) end),
+    0);
+
+  update public.profiles
+    set unilevel_points_balance = unilevel_points_balance
+          + (case when v_direction = 'CREDIT' then v_points else -v_points end),
+        total_lifetime_earnings = v_earnings_after
+    where id = p_member;
+
+  v_balances := public.kmd_member_balances(p_member);
+
+  perform public.kmd_audit(p_actor, 'POINT_ADJUSTMENT', p_member, null, 'point_ledger', v_txn,
+    jsonb_build_object('unilevelPoints', v_before, 'availablePoints', v_available,
+      'totalLifetimeEarnings', v_member.total_lifetime_earnings),
+    jsonb_build_object('unilevelPoints', v_after,
+      'availablePoints', case when v_direction = 'CREDIT' then v_available + v_points
+                              else v_available - v_points end,
+      'lifetimeUnilevel', (v_balances->>'lifetimeUnilevel')::numeric,
+      'totalLifetimeEarnings', v_earnings_after,
+      'direction', v_direction, 'points', v_points, 'reference', v_txn),
+    v_reason, v_member.is_test);
+
+  perform public.kmd_notify(p_member, 'points.adjusted',
+    'Your Unilevel Points were ' || case when v_direction = 'CREDIT' then 'increased' else 'reduced' end,
+    case when v_direction = 'CREDIT' then '+ ' else '- ' end || to_char(v_points, 'FM999999999990.00')
+      || ' points (' || v_txn || '). Balance ' || to_char(v_before, 'FM999999999990.00') || ' -> '
+      || to_char(v_after, 'FM999999999990.00') || '. Reason: ' || v_reason,
+    '/app/point-transactions', jsonb_build_object('reference', v_txn, 'direction', v_direction,
+      'points', v_points, 'balanceBefore', v_before, 'balanceAfter', v_after));
+
+  return jsonb_build_object(
+    'status','ADJUSTED',
+    'transactionId', v_txn,
+    'memberCode', v_member.member_code,
+    'memberName', v_member.full_name,
+    'direction', v_direction,
+    'points', v_points,
+    'balanceBefore', v_before,
+    'balanceAfter', v_after,
+    'availableAfter', case when v_direction = 'CREDIT' then v_available + v_points
+                           else v_available - v_points end,
+    'heldPoints', v_held,
+    'lifetimeUnilevelAfter', coalesce((v_balances->>'lifetimeUnilevel')::numeric, 0),
+    'lifetimeLoyaltyCredits', coalesce((v_balances->>'lifetimeLoyaltyCredits')::numeric, 0),
+    'lifetimeEarningsAfter', v_earnings_after,
+    'reasonText','Adjustment posted as ' || v_txn || ': '
+      || case when v_direction = 'CREDIT' then 'added ' else 'deducted ' end
+      || to_char(v_points, 'FM999999999990.00') || ' points. Balance '
+      || to_char(v_before, 'FM999999999990.00') || ' -> ' || to_char(v_after, 'FM999999999990.00') || '.');
+end $$;
+
+revoke all on function public.kmd_adjust_points(uuid,numeric,text,text,uuid,text) from public, anon, authenticated;
+grant execute on function public.kmd_adjust_points(uuid,numeric,text,text,uuid,text) to service_role;

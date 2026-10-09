@@ -1,0 +1,32 @@
+-- Audit trail for the reconciliation that has just been applied, derived from the
+-- ledger so the recorded previous/new values are exact.
+insert into public.audit_logs (
+  actor_id, actor_member_code, action, target_member_id, target_member_code,
+  entity, entity_id, previous_value, new_value, reason, is_test
+)
+select null, 'SYSTEM (one-time reconciliation)', 'LIFETIME_EARNINGS_RECONCILIATION',
+       p.id, p.member_code, 'profiles', p.id::text,
+       jsonb_build_object('totalLifetimeEarnings', p.total_lifetime_earnings + d.points),
+       jsonb_build_object('totalLifetimeEarnings', p.total_lifetime_earnings,
+                          'adminDebitAdjustments', d.points),
+       'Posted administrator debit adjustments were not previously subtracted from lifetime earnings',
+       p.is_test
+  from public.profiles p
+  join (select beneficiary_id, sum(total_points) as points from public.point_ledger
+         where transaction_type = 'ADMIN_ADJUSTMENT' and direction = 'DEBIT' and status = 'posted'
+         group by beneficiary_id) d on d.beneficiary_id = p.id
+ where not exists (select 1 from public.audit_logs a
+                    where a.action = 'LIFETIME_EARNINGS_RECONCILIATION' and a.target_member_id = p.id);
+
+select p.member_code,
+       p.total_lifetime_earnings as lifetime_earnings_now,
+       (select coalesce(sum(l.total_points),0) from public.point_ledger l
+         where l.beneficiary_id = p.id and l.transaction_type = 'ADMIN_ADJUSTMENT'
+           and l.direction = 'DEBIT' and l.status = 'posted') as posted_admin_debits,
+       public.kmd_member_balances(p.id)->>'lifetimeUnilevel' as lifetime_unilevel_net,
+       public.kmd_member_balances(p.id)->>'lifetimeLoyaltyCredits' as lifetime_loyalty_net,
+       public.kmd_member_balances(p.id)->>'availablePoints' as available_points
+  from public.profiles p
+ where exists (select 1 from public.point_ledger l where l.beneficiary_id = p.id
+                and l.transaction_type = 'ADMIN_ADJUSTMENT' and l.direction = 'DEBIT' and l.status = 'posted')
+ order by p.member_code;
