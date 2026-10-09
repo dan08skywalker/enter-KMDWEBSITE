@@ -9,6 +9,9 @@ import { PageHeader } from "@/components/kmd/page-header";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { OrderStatusTimeline } from "@/components/kmd/order-status-timeline";
+import { CourierTrackingPanel } from "@/components/kmd/courier-tracking";
+import { useDigitalProductIds } from "@/hooks/use-digital-products";
+import { isDigitalOnlyOrder } from "@/lib/kmd/courier";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -52,6 +55,7 @@ export default function MemberOrderDetail() {
   const [walletPayment, setWalletPayment] = useState<WalletPayment | null>(null);
 
   const wallet = useWalletBalance();
+  const digitalProductIds = useDigitalProductIds();
   const [walletDialogOpen, setWalletDialogOpen] = useState(false);
   const [walletBusy, setWalletBusy] = useState(false);
   const [walletError, setWalletError] = useState<string | null>(null);
@@ -298,6 +302,13 @@ export default function MemberOrderDetail() {
           rewardsProcessedAt={order.rewards_processed_at}
         />
       </div>
+
+      <CourierTrackingPanel
+        courier={order.courier}
+        trackingNumber={order.tracking_number}
+        fulfillmentStatus={order.fulfillment_status}
+        digitalOnly={isDigitalOnlyOrder(items, digitalProductIds)}
+      />
 
       {walletPayment ? (
         <div className="kmd-panel p-5">

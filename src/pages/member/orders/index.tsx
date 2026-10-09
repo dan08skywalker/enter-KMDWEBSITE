@@ -11,6 +11,9 @@ import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { FilterBar, SelectFilter } from "@/components/kmd/filter-bar";
+import { CourierTrackingCell } from "@/components/kmd/courier-tracking";
+import { useDigitalProductIds } from "@/hooks/use-digital-products";
+import { isDigitalOnlyOrder } from "@/lib/kmd/courier";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -54,6 +57,7 @@ export default function MemberOrders() {
   const [productId, setProductId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [creating, setCreating] = useState(false);
+  const digitalProductIds = useDigitalProductIds();
 
   const load = async () => {
     if (!user) return;
@@ -141,6 +145,17 @@ export default function MemberOrders() {
       key: "number",
       header: "Order Number",
       cell: (row) => <span className="font-mono text-xs font-semibold">{row.order_number}</span>,
+    },
+    {
+      key: "tracking",
+      header: "Courier Tracking",
+      cell: (row) => (
+        <CourierTrackingCell
+          courier={row.courier}
+          trackingNumber={row.tracking_number}
+          digitalOnly={isDigitalOnlyOrder(row.order_items ?? [], digitalProductIds)}
+        />
+      ),
     },
     {
       key: "product",

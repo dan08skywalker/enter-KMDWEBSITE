@@ -114,6 +114,12 @@ export interface Order {
   is_shipping_quoted: boolean;
   payment_method: string | null;
   status: OrderStatus;
+  /** Fulfilment state and the courier booking recorded by the administrator. */
+  fulfillment_status: "unfulfilled" | "preparing" | "shipped" | "delivered" | "cancelled";
+  courier: string | null;
+  tracking_number: string | null;
+  shipped_at: string | null;
+  delivered_at: string | null;
   qualification_source: string | null;
   rewards_processed: boolean;
   rewards_processed_at: string | null;
