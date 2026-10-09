@@ -1,0 +1,9 @@
+-- Cover photo for Trial Pack B (Trial Pack Bundle PowerPill, KMD-TRIAL-002),
+-- stored exactly like the other membership bundles: image_url plus the same
+-- artwork as the first gallery image.
+update public.products
+   set image_url = 'https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/02d3ff1e.jpeg',
+       gallery = jsonb_build_array('https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/02d3ff1e.jpeg'),
+       updated_at = now()
+ where sku = 'KMD-TRIAL-002'
+   and product_code = 'KMD-PROD-0005';
