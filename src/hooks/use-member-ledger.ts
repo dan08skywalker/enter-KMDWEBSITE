@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
+import { toNumber } from "@/lib/kmd/format";
 import type { LoyaltyLedgerRow, PointLedgerRow, WalletLedgerRow } from "@/lib/kmd/types";
 
 export interface MemberLedger {

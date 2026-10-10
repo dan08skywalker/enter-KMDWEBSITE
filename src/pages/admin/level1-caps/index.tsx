@@ -181,7 +181,7 @@ export default function AdminLevel1Caps() {
     {
       key: "tier",
       header: "Tier",
-      cell: (row) => <StatusBadge label={row.tier} tone="primary" />,
+      cell: (row) => <StatusBadge label={row.tier} tone="info" />,
     },
     {
       key: "members",

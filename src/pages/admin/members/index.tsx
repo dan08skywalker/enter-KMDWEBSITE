@@ -42,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDate, formatPoints, toNumber } from "@/lib/kmd/format";
+import { formatDate, formatPeso, formatPoints, toNumber } from "@/lib/kmd/format";
 import { accountStatus, packageTier } from "@/lib/kmd/labels";
 import type { MembershipPackage, Profile } from "@/lib/kmd/types";
 
@@ -663,7 +663,7 @@ export default function AdminMembers() {
                 <div className="flex justify-between">
                   <dt className="text-muted-foreground">Unilevel points</dt>
                   <dd className="font-semibold tabular-nums">
-                    {formatPoints(member.unilevel_points_balance)}
+                    {formatPoints(action?.member.unilevel_points_balance)}
                   </dd>
                 </div>
                 <div className="flex justify-between border-t pt-2">
@@ -671,8 +671,8 @@ export default function AdminMembers() {
                   <dd className="font-bold tabular-nums">
                     {formatPoints(
                       direction === "CREDIT"
-                        ? toNumber(member.unilevel_points_balance) + Number(adjustPoints || 0)
-                        : toNumber(member.unilevel_points_balance) - Number(adjustPoints || 0),
+                        ? toNumber(action?.member.unilevel_points_balance) + Number(adjustPoints || 0)
+                        : toNumber(action?.member.unilevel_points_balance) - Number(adjustPoints || 0),
                     )}
                   </dd>
                 </div>
