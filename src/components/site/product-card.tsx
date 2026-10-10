@@ -1,10 +1,11 @@
 import { Link } from "react-router-dom";
-import { ShoppingBag } from "lucide-react";
+import { FileText, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PriceTag } from "@/components/site/price-tag";
 import { StockBadge } from "@/components/site/stock-badge";
 import { useCart } from "@/contexts/cart-context";
 import { toast } from "@/hooks/use-toast";
+import { requestHrefForSku } from "@/lib/digital/types";
 import type { StoreProduct } from "@/lib/site/types";
 
 interface ProductCardProps {
@@ -16,6 +17,7 @@ export function ProductCard({ product }: ProductCardProps) {
 
   const href = product.slug ? `/shop/${product.slug}` : "/shop";
   const canBuy = product.inStock;
+  const requestHref = requestHrefForSku(product.sku);
 
   const addToCart = () => {
     cart.add(
@@ -103,6 +105,15 @@ export function ProductCard({ product }: ProductCardProps) {
               <Link to={href}>Details</Link>
             </Button>
           </div>
+
+          {requestHref ? (
+            <Button asChild variant="ghost" size="sm" className="mt-1 w-full text-accent">
+              <Link to={requestHref}>
+                <FileText className="h-3.5 w-3.5" />
+                Request a quotation
+              </Link>
+            </Button>
+          ) : null}
         </div>
       </div>
     </article>

@@ -1,0 +1,24 @@
+-- The user approved updating this one existing catalogue record rather than leaving
+-- a duplicate offering: KMD-DIGITAL-LP becomes the new Landing page service at
+-- ₱1,980, published in the Digital Services category.
+--
+-- What changes: the name, the two descriptions and the price of THIS row only.
+-- What deliberately does not change: the product code, the SKU, the slug, the
+-- image, the inventory flag (false) and the reward configuration — which is zero
+-- at every level, so a purchase of this item can never pay a Unilevel point or a
+-- loyalty credit. No other product, order or ledger row is touched.
+update public.products
+   set name = 'Landing page',
+       short_description = 'A professional landing page for your business, built to an agreed scope.',
+       description = 'A professional landing page designed and built for your business. The project price is ₱1,980, with optional hosting at ₱1,500 per year billed separately from the project price. Send a request and we prepare a written quotation covering the scope, deliverables, target completion date and payment terms before any work begins.',
+       selling_price = 1980,
+       promo_price = 1980,
+       regular_price = null,
+       is_active = true,
+       track_inventory = false,
+       updated_at = now()
+ where sku = 'KMD-DIGITAL-LP' and product_code = 'KMD-DIGITAL-LP';
+
+select sku, name, category, product_type, is_digital, is_active, selling_price, promo_price, regular_price, track_inventory,
+       (select count(*) from public.reward_configurations rc where rc.product_id = p.id and (rc.level1_points + rc.level2_points + rc.level3_points + rc.level4_points + rc.level5_points + rc.loyalty_credit) > 0) as reward_rows_that_pay
+  from public.products p where sku = 'KMD-DIGITAL-LP';

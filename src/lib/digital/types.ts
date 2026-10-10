@@ -354,3 +354,24 @@ export function mapRequest(row: Record<string, unknown>): ClientRequest {
     submittedAt: String(row.submitted_at ?? ""),
   };
 }
+
+/* ------------------------------------------------- existing shop listings -- */
+
+/**
+ * The shop catalogue entries that belong to KMD Digital Solutions.
+ *
+ * A digital service keeps its existing storefront record so nothing already
+ * published breaks, and the request form is reached from that same listing. The
+ * value is the offering key the form should open with.
+ */
+export const SHOP_DIGITAL_OFFERING_KEYS: Record<string, string> = {
+  "KMD-DIGITAL-LP": "SVC-LANDING",
+};
+
+/** The request-form link for a shop listing, or null when it is not digital. */
+export function requestHrefForSku(sku: string | null | undefined): string | null {
+  if (!sku) return null;
+  const offeringKey = SHOP_DIGITAL_OFFERING_KEYS[sku];
+  if (!offeringKey) return null;
+  return `/digital-solutions/request?item=${encodeURIComponent(offeringKey)}`;
+}

@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   BookOpen,
   ChevronRight,
+  FileText,
   Phone,
   ShoppingBag,
   Truck,
@@ -22,6 +23,7 @@ import { useCart } from "@/contexts/cart-context";
 import { toast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
 import { DOKUDAMI_REVIEW_URL, SUPPLEMENT_DISCLAIMER } from "@/lib/site/content";
+import { requestHrefForSku } from "@/lib/digital/types";
 import type { StoreProduct } from "@/lib/site/types";
 
 export default function ProductDetailPage() {
@@ -96,6 +98,8 @@ export default function ProductDetailPage() {
         : [],
     [products, product],
   );
+
+  const requestHref = requestHrefForSku(product?.sku);
 
   const addToCart = () => {
     if (!product) return;
@@ -316,6 +320,22 @@ export default function ProductDetailPage() {
                 Buy now
               </Button>
             </div>
+
+            {requestHref ? (
+              <div className="mt-4 rounded-lg border border-dashed p-4">
+                <p className="text-xs font-semibold">Prefer a written quotation first?</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
+                  Send us the client and project details and we prepare a quotation with the scope,
+                  deliverables, prices and dates. A request is not an order and takes no payment.
+                </p>
+                <Button asChild variant="outline" size="sm" className="mt-3 w-full sm:w-auto">
+                  <Link to={requestHref}>
+                    <FileText className="h-3.5 w-3.5" />
+                    Request a quotation
+                  </Link>
+                </Button>
+              </div>
+            ) : null}
 
             {!product.inStock && !product.isDigital ? (
               <p className="mt-3 rounded-lg border border-warning/35 bg-warning/10 p-3 text-xs text-foreground">
