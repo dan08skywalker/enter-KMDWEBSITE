@@ -1,0 +1,1 @@
+select public.kmd_confirm_payment((select id from public.orders where order_number = 'KMD-ORDER-001135'), (select id from public.profiles where username='kmdadmin'), 'payment_confirmed')::text as result

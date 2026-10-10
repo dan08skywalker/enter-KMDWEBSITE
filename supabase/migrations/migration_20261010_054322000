@@ -1,0 +1,6 @@
+-- A Platinum sponsor carries no Level 1 cap, so the VIP matrix amount applies in full.
+update public.profiles set package_id = (select id from public.membership_packages where package_code = 'KMD-PKG-PLATINUM')
+ where is_test and username = 'testsponsor1';
+
+select public.kmd_create_order((select id from public.products where sku = 'KMD-VIP-SIGNATURE'), 1,
+  (select id from public.profiles where username = 'testbuyer')) as vip_order_for_a_platinum_sponsor;

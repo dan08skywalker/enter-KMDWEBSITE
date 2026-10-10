@@ -3,7 +3,7 @@ import { formatDate } from "@/lib/kmd/format";
 import { packageTier } from "@/lib/kmd/labels";
 import { LOYALTY_CARD_ART, LOYALTY_CARD_ASPECT } from "@/lib/kmd/constants";
 
-export type LoyaltyTier = "trial" | "classic" | "gold" | "platinum";
+export type LoyaltyTier = "trial" | "classic" | "gold" | "platinum" | "vip";
 
 interface LoyaltyCardProps {
   tier: LoyaltyTier | string;
@@ -20,6 +20,7 @@ const TIER_STYLES: Record<string, string> = {
   classic: "bg-kmd-primary text-primary-foreground border-transparent",
   gold: "bg-kmd-gold text-[hsl(var(--gold-foreground))] border-transparent",
   platinum: "bg-kmd-platinum text-[hsl(var(--platinum-foreground))] border-transparent",
+  vip: "bg-kmd-platinum text-[hsl(var(--platinum-foreground))] border-transparent",
 };
 
 /**
@@ -34,6 +35,10 @@ const TIER_TEXT: Record<string, { value: string; label: string }> = {
     label: "text-[hsl(var(--gold-foreground))]/60",
   },
   platinum: {
+    value: "text-[hsl(var(--platinum-foreground))]",
+    label: "text-[hsl(var(--platinum-foreground))]/65",
+  },
+  vip: {
     value: "text-[hsl(var(--platinum-foreground))]",
     label: "text-[hsl(var(--platinum-foreground))]/65",
   },

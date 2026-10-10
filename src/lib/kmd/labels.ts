@@ -106,6 +106,7 @@ const PACKAGE_TIER: Record<string, Descriptor> = {
   classic: { label: "Classic", tone: "info" },
   gold: { label: "Gold", tone: "gold" },
   platinum: { label: "Platinum", tone: "platinum" },
+  vip: { label: "VIP Signature", tone: "gold" },
 };
 
 function pick(map: Record<string, Descriptor>, key?: string | null): Descriptor {

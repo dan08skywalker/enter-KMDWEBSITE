@@ -1,0 +1,84 @@
+-- ============================================================================
+-- VIP Signature Pack
+--
+-- Reviewed before running: this adds one product, one inventory row, one membership
+-- package and one reward configuration for the new VIP package, all keyed on the new
+-- SKU / package code so a rerun updates rather than duplicates. The only change to an
+-- existing object is widening the membership_packages tier CHECK to accept the new
+-- 'vip' value: it is the same package catalogue, every existing row still satisfies
+-- the wider rule, and no row, balance or reward is modified or deleted.
+-- ============================================================================
+
+alter table public.membership_packages drop constraint if exists membership_packages_tier_check;
+alter table public.membership_packages
+  add constraint membership_packages_tier_check
+  check (tier in ('trial','classic','gold','platinum','vip'));
+
+do $$
+declare
+  v_product uuid;
+  v_package uuid;
+  v_code_exists int;
+begin
+  select count(*) into v_code_exists from public.products where product_code = 'KMD-PROD-0006';
+  if v_code_exists > 0 and not exists (select 1 from public.products where sku = 'KMD-VIP-SIGNATURE') then
+    raise exception 'CONFLICT: product code KMD-PROD-0006 already belongs to another product';
+  end if;
+
+  select id into v_product from public.products where sku = 'KMD-VIP-SIGNATURE';
+
+  if v_product is null then
+    insert into public.products (
+      product_code, name, sku, membership_code, category, product_type,
+      selling_price, is_active, track_inventory, is_digital, sort_order,
+      short_description, description
+    ) values (
+      'KMD-PROD-0006', 'VIP Signature Pack Bundle', 'KMD-VIP-SIGNATURE', 'KMD-MC-VIP',
+      'Membership Bundle', 'membership', 200000.00, true, true, false, 14,
+      'Bundle D - 145 bottles of Dokudami Capsules.',
+      'The VIP Signature Pack is Bundle D: 145 bottles of Dokudami Capsules, the highest membership tier in the KMD Empire plan.'
+    ) returning id into v_product;
+  else
+    update public.products
+       set name = 'VIP Signature Pack Bundle',
+           product_type = 'membership',
+           selling_price = 200000.00,
+           is_active = true,
+           track_inventory = true,
+           sort_order = 14
+     where id = v_product;
+  end if;
+
+  if not exists (select 1 from public.inventory where product_id = v_product) then
+    insert into public.inventory (product_id, quantity_on_hand, reserved_quantity, is_unlimited, low_stock_threshold)
+    values (v_product, 10000, 0, true, 5);
+  end if;
+
+  select id into v_package from public.membership_packages where package_code = 'KMD-PKG-VIP-SIGNATURE';
+  if v_package is null then
+    insert into public.membership_packages (package_code, name, tier, product_id, is_active)
+    values ('KMD-PKG-VIP-SIGNATURE', 'VIP Signature Pack', 'vip', v_product, true)
+    returning id into v_package;
+  else
+    update public.membership_packages
+       set name = 'VIP Signature Pack', tier = 'vip', product_id = v_product, is_active = true
+     where id = v_package;
+  end if;
+
+  insert into public.reward_configurations (
+    product_id, sku, level1_points, level2_points, level3_points, level4_points, level5_points,
+    loyalty_credit, loyalty_beneficiary_level, is_active
+  ) values (
+    v_product, 'KMD-VIP-SIGNATURE', 10000, 0, 0, 0, 0, 0, 1, true
+  )
+  on conflict (product_id) do update set
+    sku = excluded.sku,
+    level1_points = excluded.level1_points,
+    level2_points = excluded.level2_points,
+    level3_points = excluded.level3_points,
+    level4_points = excluded.level4_points,
+    level5_points = excluded.level5_points,
+    loyalty_credit = excluded.loyalty_credit,
+    loyalty_beneficiary_level = excluded.loyalty_beneficiary_level,
+    is_active = excluded.is_active;
+end $$;

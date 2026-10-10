@@ -79,7 +79,7 @@ export interface MembershipPackage {
   id: string;
   package_code: string;
   name: string;
-  tier: "trial" | "classic" | "gold" | "platinum";
+  tier: "trial" | "classic" | "gold" | "platinum" | "vip";
   product_id: string;
   is_active: boolean;
 }

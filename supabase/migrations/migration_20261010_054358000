@@ -1,0 +1,5 @@
+-- Repeat confirmation must not duplicate anything.
+select public.kmd_confirm_payment((select id from public.orders where order_number = 'KMD-ORDER-001135'), (select id from public.profiles where username='kmdadmin'), 'payment_confirmed')::text as repeat_confirmation;
+
+-- Verification cleanup: the test accounts' package pointers return to their prior state.
+update public.profiles set package_id = null where is_test and username in ('testsponsor1','testbuyer');

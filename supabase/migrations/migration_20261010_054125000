@@ -1,0 +1,89 @@
+-- VIP sits above Platinum in the tier order, so Platinum members can upgrade to it
+-- and VIP members are on the top tier.
+create or replace function public.kmd_my_membership()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_member public.profiles%rowtype;
+  v_package public.membership_packages%rowtype;
+  v_cap numeric(14,2);
+  v_tier_order int;
+begin
+  if v_uid is null then return null; end if;
+
+  select * into v_member from public.profiles where id = v_uid;
+  if not found then return null; end if;
+
+  select * into v_package from public.membership_packages where id = v_member.package_id;
+
+  v_tier_order := case v_package.tier
+    when 'trial' then 1 when 'classic' then 2 when 'gold' then 3
+    when 'platinum' then 4 when 'vip' then 5 else 0 end;
+
+  v_cap := public.kmd_level1_cap_for_package(v_member.package_id);
+
+  return jsonb_build_object(
+    'packageCode', v_package.package_code,
+    'packageName', v_package.name,
+    'tier', v_package.tier,
+    'level1Cap', v_cap,
+    'level1Capped', v_cap is not null,
+    'eligibleUpgrades', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'packageCode', mp.package_code,
+        'packageName', mp.name,
+        'tier', mp.tier,
+        'sku', p.sku,
+        'productName', p.name,
+        'price', p.selling_price,
+        'regularPrice', p.regular_price,
+        'imageUrl', p.image_url)
+        order by case mp.tier when 'gold' then 1 when 'platinum' then 2 when 'vip' then 3 else 4 end,
+                 p.selling_price)
+      from public.membership_packages mp
+      join public.products p on p.id = mp.product_id
+      where mp.is_active and p.is_active
+        and case mp.tier when 'trial' then 1 when 'classic' then 2 when 'gold' then 3
+                          when 'platinum' then 4 when 'vip' then 5 else 0 end > v_tier_order
+    ), '[]'::jsonb));
+end $$;
+
+revoke all on function public.kmd_my_membership() from public, anon;
+grant execute on function public.kmd_my_membership() to authenticated;
+
+-- The caps screen lists VIP last and shows it as uncapped.
+create or replace function public.kmd_admin_level1_caps(p_actor uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not public.kmd_is_admin(p_actor) then null else jsonb_build_object(
+    'packages', coalesce((
+      select jsonb_agg(entry order by entry->>'tierOrder', entry->>'packageCode')
+      from (
+        select jsonb_build_object(
+          'packageId', mp.id,
+          'packageCode', mp.package_code,
+          'packageName', mp.name,
+          'tier', mp.tier,
+          'tierOrder', case mp.tier when 'trial' then 1 when 'classic' then 2 when 'gold' then 3
+                                    when 'platinum' then 4 when 'vip' then 5 else 6 end,
+          'capAmount', c.cap_amount,
+          'capped', c.cap_amount is not null,
+          'capUpdatedAt', c.updated_at,
+          'capUpdatedByCode', (select p.member_code from public.profiles p where p.id = c.updated_by),
+          'membersOnPackage', (select count(*) from public.profiles p where p.package_id = mp.id),
+          'level1MatrixPoints', (select rc.level1_points from public.reward_configurations rc where rc.product_id = mp.product_id)
+        ) as entry
+        from public.membership_packages mp
+        left join public.level1_caps c on c.membership_package_id = mp.id
+        where mp.is_active
+      ) rows
+    ), '[]'::jsonb)) end;
+$$;
+
+revoke all on function public.kmd_admin_level1_caps(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_admin_level1_caps(uuid) to service_role;
+
+select entry->>'packageCode' as package_code, entry->>'tier' as tier,
+       entry->>'level1MatrixPoints' as matrix_level1, coalesce(entry->>'capAmount','no cap') as cap
+  from jsonb_array_elements(public.kmd_admin_level1_caps((select id from public.profiles where username='kmdadmin'))->'packages') as entry;

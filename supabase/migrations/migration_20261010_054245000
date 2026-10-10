@@ -1,0 +1,1 @@
+select public.kmd_confirm_payment('2bccab86-aee9-4c63-8909-81f916429b69'::uuid, (select id from public.profiles where username='kmdadmin'), 'payment_confirmed')::text as confirmation_result
