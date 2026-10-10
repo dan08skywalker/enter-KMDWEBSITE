@@ -44,6 +44,8 @@ export default function AdminOrderDetail() {
 
   const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState<Order | null>(null);
+  /** Authoritative reward status for this order, derived from the ledgers. */
+  const [derivedRewardStatus, setDerivedRewardStatus] = useState<string | null>(null);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [proofs, setProofs] = useState<PaymentProof[]>([]);
   const [walletPayment, setWalletPayment] = useState<WalletPayment | null>(null);
@@ -92,6 +94,16 @@ export default function AdminOrderDetail() {
       setBuyer((buyerRow as unknown as Profile | null) ?? null);
     }
 
+    // Authoritative reward status for this order, from the same backend source the
+    // approval screen uses.
+    const statusOutcome = await invokeFunction<{ result?: Record<string, { status?: string }> }>(
+      "admin-actions",
+      { action: "reward_status", orderIds: [orderId] },
+    );
+    setDerivedRewardStatus(
+      statusOutcome.ok ? (statusOutcome.data?.result?.[orderId]?.status ?? null) : null,
+    );
+
     setLoading(false);
   }, [orderId]);
 
@@ -122,7 +134,10 @@ export default function AdminOrderDetail() {
         description: result.reasonText ?? "The backend refused the action.",
       });
     } else if (result?.status === "ALREADY_PROCESSED") {
-      toast.info(result.reasonText ?? "This order was already processed");
+      // Nothing is credited again, and the wording matches what both screens show.
+      toast.info("Rewards already processed for this order.", {
+        description: result.reasonText ?? "No points, commissions or loyalty credits were added again.",
+      });
     } else {
       toast.success(successMessage);
     }
@@ -290,8 +305,20 @@ export default function AdminOrderDetail() {
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge label={status.label} tone={status.tone} />
           <StatusBadge
-            label={order.rewards_processed ? "Rewards processed" : "Rewards not processed"}
-            tone={order.rewards_processed ? "success" : "warning"}
+            label={
+              derivedRewardStatus === "partial"
+                ? "Rewards partially processed"
+                : derivedRewardStatus === "complete" || derivedRewardStatus === "historical" || order.rewards_processed
+                  ? "Rewards processed"
+                  : "Rewards not processed"
+            }
+            tone={
+              derivedRewardStatus === "partial"
+                ? "warning"
+                : derivedRewardStatus === "complete" || derivedRewardStatus === "historical" || order.rewards_processed
+                  ? "success"
+                  : "warning"
+            }
           />
           {order.is_test ? <StatusBadge label="Test" tone="platinum" /> : null}
         </div>
@@ -345,7 +372,10 @@ export default function AdminOrderDetail() {
             }
           />
 
-          {order.status === "confirmed" && !order.rewards_processed ? (
+          {order.status === "confirmed" &&
+          !order.rewards_processed &&
+          derivedRewardStatus !== "complete" &&
+          derivedRewardStatus !== "historical" ? (
             <ConfirmActionDialog
               trigger={
                 <Button variant="secondary">

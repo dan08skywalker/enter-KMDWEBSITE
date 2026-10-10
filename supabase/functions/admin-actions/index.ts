@@ -397,6 +397,17 @@ Deno.serve(async (req) => {
               : Number(body.capAmount),
         });
 
+      case "reward_status":
+        // The same authoritative reward status for every screen that shows it.
+        return run("kmd_admin_reward_status", {
+          p_actor: actorId,
+          p_order_ids: Array.isArray(body?.orderIds) ? body.orderIds.map(String) : [],
+        });
+
+      case "reward_integrity":
+        // Administrator review: duplicates, missing labels, incomplete orders.
+        return run("kmd_admin_reward_integrity", { p_actor: actorId });
+
       case "duplicate_contacts":
         return run("kmd_duplicate_contacts", { p_actor: actorId });
 

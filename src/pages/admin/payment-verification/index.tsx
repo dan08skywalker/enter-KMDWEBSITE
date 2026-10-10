@@ -187,7 +187,9 @@ export default function AdminPaymentApprovals() {
         description: result.reasonText ?? "The backend refused the action.",
       });
     } else if (result?.status === "ALREADY_PROCESSED") {
-      toast.info("This payment was already approved, so nothing was paid again");
+      toast.info("Rewards already processed for this order.", {
+        description: result.reasonText ?? "No points, commissions or loyalty credits were added again.",
+      });
     } else {
       toast.success(message);
     }

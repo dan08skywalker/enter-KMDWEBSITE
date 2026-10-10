@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeFunction } from "@/lib/kmd/invoke";
 import { PageHeader } from "@/components/kmd/page-header";
 import { ExportButton } from "@/components/kmd/export-button";
 import { StatCard } from "@/components/kmd/stat-card";
@@ -23,9 +24,17 @@ export default function AdminOrders() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  /** order id -> authoritative reward status derived from the reward ledgers. */
+  const [rewardStatus, setRewardStatus] = useState<Record<string, string>>({});
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
   const [includeTest, setIncludeTest] = useState(false);
+  const [integrity, setIntegrity] = useState<{
+    suspectedDuplicateCredits: unknown[];
+    unflaggedWithRewards: string[];
+    incompleteNeedingRetry: string[];
+    historicalConfigurationDifferences: unknown[];
+  } | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -45,14 +54,46 @@ export default function AdminOrders() {
         return;
       }
       if (active) {
-        setOrders((data ?? []) as unknown as OrderRow[]);
+        const rows = (data ?? []) as unknown as OrderRow[];
+        setOrders(rows);
         setLoading(false);
+
+        // The reward status comes from the ledgers, the same source the approval
+        // screen reads, so the two can never disagree.
+        if (rows.length > 0) {
+          const outcome = await invokeFunction<{ result?: Record<string, { status?: string }> }>(
+            "admin-actions",
+            { action: "reward_status", orderIds: rows.map((row) => row.id) },
+          );
+          if (outcome.ok && active) {
+            setRewardStatus(
+              Object.fromEntries(
+                Object.entries(outcome.data?.result ?? {}).map(([id, entry]) => [id, entry.status ?? ""]),
+              ),
+            );
+          }
+        }
       }
     })();
     return () => {
       active = false;
     };
   }, [includeTest]);
+
+  // Read once: duplicates, missing legacy labels and genuinely incomplete orders.
+  useEffect(() => {
+    void (async () => {
+      const outcome = await invokeFunction<{
+        result?: {
+          suspectedDuplicateCredits: unknown[];
+          unflaggedWithRewards: string[];
+          incompleteNeedingRetry: string[];
+          historicalConfigurationDifferences: unknown[];
+        };
+      }>("admin-actions", { action: "reward_integrity" });
+      if (outcome.ok && outcome.data?.result) setIntegrity(outcome.data.result);
+    })();
+  }, []);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -121,12 +162,19 @@ export default function AdminOrders() {
     {
       key: "rewards",
       header: "Rewards",
-      cell: (row) => (
-        <StatusBadge
-          label={row.rewards_processed ? "Processed" : "Not processed"}
-          tone={row.rewards_processed ? "success" : "warning"}
-        />
-      ),
+      cell: (row) => {
+        // The authoritative status, derived from the reward ledgers, so this column
+        // cannot disagree with the approval screen or with a missing legacy flag.
+        const derived = rewardStatus[row.id];
+        if (derived === "partial") return <StatusBadge label="Incomplete" tone="warning" />;
+        const processed = derived === "complete" || derived === "historical" || row.rewards_processed;
+        return (
+          <StatusBadge
+            label={processed ? "Processed" : "Not processed"}
+            tone={processed ? "success" : "warning"}
+          />
+        );
+      },
     },
     { key: "created", header: "Created", cell: (row) => formatDate(row.created_at) },
   ];

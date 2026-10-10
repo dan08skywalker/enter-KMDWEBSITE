@@ -5399,6 +5399,14 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_admin_reward_integrity: {
+        Args: { p_actor: string }
+        Returns: Json
+      }
+      kmd_admin_reward_status: {
+        Args: { p_actor: string; p_order_ids: string[] }
+        Returns: Json
+      }
       kmd_admin_set_bundle: {
         Args: {
           p_actor: string
@@ -5678,6 +5686,10 @@ export type Database = {
           p_type: string
         }
         Returns: string
+      }
+      kmd_order_reward_status: {
+        Args: { p_order_id: string }
+        Returns: Json
       }
       kmd_price_snapshot: {
         Args: { p_member: string; p_product_id: string }

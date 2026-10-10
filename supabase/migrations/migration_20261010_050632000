@@ -1,0 +1,194 @@
+create or replace function public.kmd_order_reward_status(p_order_id uuid)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_max int := 5;
+  v_expected jsonb;
+  v_missing jsonb;
+  v_levels jsonb;
+  v_loyalty_expected boolean := false;
+  v_loyalty_paid boolean := false;
+  v_complete boolean;
+  v_owed int;
+begin
+  select * into v_order from public.orders where id = p_order_id;
+  if not found then
+    return jsonb_build_object('found', false);
+  end if;
+
+  select coalesce((value #>> '{}')::int, 5) into v_max
+    from public.system_settings where key = 'max_unilevel_levels';
+  v_max := coalesce(v_max, 5);
+
+  -- A level is owed only when the matrix pays it AND an active upline exists there,
+  -- which is exactly how the engine decides. A guest purchase owes nothing.
+  with matrix as (
+    select distinct lvl.level
+      from public.order_items oi
+      join public.reward_configurations rc on rc.product_id = oi.product_id and rc.is_active
+      cross join lateral (values
+        (1, rc.level1_points), (2, rc.level2_points), (3, rc.level3_points),
+        (4, rc.level4_points), (5, rc.level5_points)) as lvl(level, points)
+     where oi.order_id = p_order_id
+       and coalesce(lvl.points, 0) > 0
+       and lvl.level <= v_max
+       and v_order.buyer_profile_id is not null
+       and exists (select 1 from public.sponsor_relationships sr
+                     join public.profiles a on a.id = sr.ancestor_id
+                    where sr.descendant_id = v_order.buyer_profile_id
+                      and sr.level = lvl.level
+                      and a.account_status = 'active')
+  ), paid as (
+    select distinct l.unilevel_level as level
+      from public.point_ledger l
+     where l.order_id = p_order_id and l.transaction_type = 'UNILEVEL_BONUS' and l.status = 'posted'
+  )
+  select coalesce(jsonb_agg(distinct m.level order by m.level), '[]'::jsonb),
+         coalesce(jsonb_agg(distinct m.level order by m.level) filter (where p.level is null), '[]'::jsonb),
+         coalesce(jsonb_agg(distinct p.level order by p.level) filter (where p.level is not null), '[]'::jsonb)
+    into v_expected, v_missing, v_levels
+    from matrix m
+    left join paid p on p.level = m.level;
+
+  select exists (
+    select 1 from public.order_items oi
+      join public.reward_configurations rc on rc.product_id = oi.product_id and rc.is_active
+     where oi.order_id = p_order_id and coalesce(rc.loyalty_credit, 0) > 0)
+    and v_order.buyer_profile_id is not null
+    into v_loyalty_expected;
+
+  select exists (
+    select 1 from public.loyalty_credit_ledger c
+     where c.order_id = p_order_id and c.direction = 'CREDIT' and c.status = 'posted')
+    into v_loyalty_paid;
+
+  v_owed := jsonb_array_length(v_expected);
+  v_complete := jsonb_array_length(v_missing) = 0 and (not v_loyalty_expected or v_loyalty_paid);
+
+  return jsonb_build_object(
+    'found', true,
+    'orderId', v_order.id,
+    'orderNumber', v_order.order_number,
+    'orderStatus', v_order.status,
+    'customerType', v_order.customer_type,
+    'rewardFlag', v_order.rewards_processed,
+    'expectedLevels', v_expected,
+    'paidLevels', v_levels,
+    'missingLevels', v_missing,
+    'loyaltyExpected', v_loyalty_expected,
+    'loyaltyPaid', v_loyalty_paid,
+    'complete', v_complete,
+    -- "partial" means a genuine retry is owed: rewards are missing AND the order was
+    -- never marked processed. An order already marked processed with missing rewards is
+    -- a historical configuration difference, reported but never re-credited.
+    'status', case
+      when v_complete then 'complete'
+      when not v_order.rewards_processed and (v_owed > 0 or v_loyalty_expected) then 'partial'
+      when v_order.rewards_processed then 'historical'
+      else 'none' end);
+end $$;
+
+revoke all on function public.kmd_order_reward_status(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_order_reward_status(uuid) to service_role;
+
+-- The review report now separates the three genuinely different situations.
+create or replace function public.kmd_admin_reward_integrity(p_actor uuid)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_rows jsonb;
+  v_unflagged jsonb;
+  v_partial jsonb;
+  v_historical jsonb;
+  v_duplicates jsonb;
+  v_repaired int := 0;
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required');
+  end if;
+
+  select coalesce(jsonb_agg(entry order by entry->>'orderNumber'), '[]'::jsonb) into v_rows
+    from (
+      select public.kmd_order_reward_status(o.id) as entry
+        from public.orders o
+       where o.status = 'confirmed'
+    ) classified
+   where entry->>'found' = 'true';
+
+  select coalesce(jsonb_agg(entry->>'orderNumber'), '[]'::jsonb) into v_unflagged
+    from jsonb_array_elements(v_rows) as entry
+   where (entry->>'complete')::boolean and not (entry->>'rewardFlag')::boolean;
+
+  select coalesce(jsonb_agg(entry->>'orderNumber'), '[]'::jsonb) into v_partial
+    from jsonb_array_elements(v_rows) as entry
+   where entry->>'status' = 'partial';
+
+  select coalesce(jsonb_agg(jsonb_build_object('orderNumber', entry->>'orderNumber',
+      'missingLevels', entry->'missingLevels', 'paidLevels', entry->'paidLevels')), '[]'::jsonb)
+    into v_historical
+    from jsonb_array_elements(v_rows) as entry
+   where entry->>'status' = 'historical';
+
+  select coalesce(jsonb_agg(x), '[]'::jsonb) into v_duplicates
+    from (
+      select jsonb_build_object('orderNumber', o.order_number, 'level', t.unilevel_level,
+        'beneficiaryMemberCode', (select member_code from public.profiles where id = t.beneficiary_id),
+        'rows', t.c) as x
+        from (
+          select order_id, beneficiary_id, unilevel_level, count(*) c
+            from public.point_ledger
+           where transaction_type = 'UNILEVEL_BONUS' and order_id is not null and status = 'posted'
+           group by order_id, beneficiary_id, unilevel_level
+          having count(*) > 1
+        ) t join public.orders o on o.id = t.order_id
+      union all
+      select jsonb_build_object('orderNumber', o.order_number, 'loyalty', true,
+        'beneficiaryMemberCode', (select member_code from public.profiles where id = t.beneficiary_id),
+        'rows', t.c) as x
+        from (
+          select order_id, beneficiary_id, count(*) c
+            from public.loyalty_credit_ledger
+           where order_id is not null and direction = 'CREDIT' and status = 'posted'
+           group by order_id, beneficiary_id
+          having count(*) > 1
+        ) t join public.orders o on o.id = t.order_id
+    ) dupes;
+
+  with proof as (
+    select o.id from public.orders o
+     where o.status = 'confirmed' and not o.rewards_processed
+       and (public.kmd_order_reward_status(o.id)->>'complete')::boolean
+  )
+  update public.orders o
+     set rewards_processed = true,
+         rewards_processed_at = coalesce(o.rewards_processed_at, now())
+    from proof p
+   where o.id = p.id;
+
+  get diagnostics v_repaired = row_count;
+
+  if v_repaired > 0 then
+    insert into public.audit_logs (actor_id, actor_member_code, action, entity, entity_id, previous_value, new_value, reason, is_test)
+    select p_actor, (select member_code from public.profiles where id = p_actor),
+           'REWARD_STATUS_RECONCILIATION', 'orders', 'batch',
+           jsonb_build_object('flaggedOrders', 0), jsonb_build_object('flaggedOrders', v_repaired),
+           'Reward rows existed but the processed flag was missing; set from the ledger', false;
+  end if;
+
+  return jsonb_build_object(
+    'status','OK',
+    'classifiedOrders', jsonb_array_length(v_rows),
+    'suspectedDuplicateCredits', v_duplicates,
+    'unflaggedWithRewards', v_unflagged,
+    'flaggedCount', v_repaired,
+    'incompleteNeedingRetry', v_partial,
+    'historicalConfigurationDifferences', v_historical,
+    'reasonText', case when v_repaired > 0
+      then 'Status labels rebuilt from the reward ledgers for ' || v_repaired || ' order(s).'
+      else 'No status label needed correcting.' end);
+end $$;
+
+revoke all on function public.kmd_admin_reward_integrity(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_admin_reward_integrity(uuid) to service_role;
