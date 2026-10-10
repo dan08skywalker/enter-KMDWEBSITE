@@ -118,6 +118,7 @@ export const ADMIN_NAV: NavSection[] = [
     title: "Rewards",
     items: [
       { label: "Reward Configuration", path: "/admin/reward-configuration", icon: Coins },
+      { label: "Level 1 Earning Caps", path: "/admin/level1-caps", icon: ShieldCheck },
       { label: "Unilevel Points", path: "/admin/point-transactions", icon: Receipt },
       { label: "Loyalty Credits", path: "/admin/loyalty-transactions", icon: HandCoins },
       { label: "Wallet Conversions", path: "/admin/wallet-conversions", icon: ArrowRightLeft },

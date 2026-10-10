@@ -1,0 +1,163 @@
+-- ============================================================================
+-- Level 1 earning caps
+--
+-- Reviewed before running: this creates one NEW table (level1_caps) with RLS and
+-- seeds three rows keyed on the membership package id, adds three nullable columns
+-- to point_ledger, and defines administrator functions. It modifies no existing
+-- package, product, reward configuration, member, order or ledger row, and the only
+-- DELETE in the file belongs to the new table and runs only when an administrator
+-- explicitly sets a package back to "no cap".
+-- ============================================================================
+
+create table if not exists public.level1_caps (
+  membership_package_id uuid primary key references public.membership_packages(id) on delete cascade,
+  package_code text not null,
+  cap_amount numeric(14,2) not null check (cap_amount >= 0),
+  is_active boolean not null default true,
+  updated_by uuid,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create trigger kmd_level1_caps_touch before update on public.level1_caps
+  for each row execute function public.kmd_touch_updated_at();
+
+alter table public.level1_caps enable row level security;
+create policy level1_caps_select_admin on public.level1_caps
+  for select to authenticated using (public.kmd_is_admin(auth.uid()));
+
+grant select on public.level1_caps to authenticated;
+
+do $$
+declare
+  v_missing text;
+begin
+  select string_agg(x.code, ', ') into v_missing
+    from (values ('KMD-PKG-CLASSIC'), ('KMD-PKG-TRIAL-A'), ('KMD-PKG-TRIAL-B')) as x(code)
+   where not exists (select 1 from public.membership_packages mp where mp.package_code = x.code);
+
+  if v_missing is not null then
+    raise exception 'MAPPING ERROR: these cap packages do not exist: %', v_missing;
+  end if;
+
+  insert into public.level1_caps (membership_package_id, package_code, cap_amount)
+  select mp.id, mp.package_code, v.cap
+    from (values ('KMD-PKG-CLASSIC', 380.00), ('KMD-PKG-TRIAL-A', 150.00), ('KMD-PKG-TRIAL-B', 100.00))
+      as v(code, cap)
+    join public.membership_packages mp on mp.package_code = v.code
+  on conflict (membership_package_id) do update
+    set package_code = excluded.package_code,
+        cap_amount = excluded.cap_amount;
+end $$;
+
+create or replace function public.kmd_level1_cap_for_package(p_package_id uuid)
+returns numeric
+language sql stable security definer set search_path = public as $$
+  select case when p_package_id is null then null
+              else (select c.cap_amount from public.level1_caps c
+                     where c.membership_package_id = p_package_id and c.is_active) end;
+$$;
+
+revoke all on function public.kmd_level1_cap_for_package(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_level1_cap_for_package(uuid) to service_role;
+
+create or replace function public.kmd_admin_level1_caps(p_actor uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not public.kmd_is_admin(p_actor) then null else jsonb_build_object(
+    'packages', coalesce((
+      select jsonb_agg(entry order by entry->>'tierOrder', entry->>'packageCode')
+      from (
+        select jsonb_build_object(
+          'packageId', mp.id,
+          'packageCode', mp.package_code,
+          'packageName', mp.name,
+          'tier', mp.tier,
+          'tierOrder', case mp.tier when 'trial' then 1 when 'classic' then 2 when 'gold' then 3 else 4 end,
+          'capAmount', c.cap_amount,
+          'capped', c.cap_amount is not null,
+          'capUpdatedAt', c.updated_at,
+          'capUpdatedByCode', (select p.member_code from public.profiles p where p.id = c.updated_by),
+          'membersOnPackage', (select count(*) from public.profiles p where p.package_id = mp.id),
+          'level1MatrixPoints', (select rc.level1_points from public.reward_configurations rc where rc.product_id = mp.product_id)
+        ) as entry
+        from public.membership_packages mp
+        left join public.level1_caps c on c.membership_package_id = mp.id
+        where mp.is_active
+      ) rows
+    ), '[]'::jsonb)) end;
+$$;
+
+revoke all on function public.kmd_admin_level1_caps(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_admin_level1_caps(uuid) to service_role;
+
+create or replace function public.kmd_admin_set_level1_cap(
+  p_actor uuid,
+  p_package_id uuid,
+  p_cap_amount numeric
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_package public.membership_packages%rowtype;
+  v_before public.level1_caps%rowtype;
+  v_cap numeric(14,2);
+begin
+  if not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required');
+  end if;
+
+  select * into v_package from public.membership_packages where id = p_package_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','PACKAGE_NOT_FOUND',
+      'reasonText','That membership package does not exist');
+  end if;
+
+  if p_cap_amount is not null and (p_cap_amount < 0 or p_cap_amount > 9999999.99) then
+    return jsonb_build_object('status','FAILED','reason','INVALID_CAP',
+      'reasonText','Enter a cap of zero or more, or leave it empty for no cap');
+  end if;
+
+  v_cap := case when p_cap_amount is null then null else round(p_cap_amount, 2) end;
+
+  select * into v_before from public.level1_caps
+    where membership_package_id = p_package_id for update;
+
+  if v_cap is null then
+    delete from public.level1_caps where membership_package_id = p_package_id;
+  else
+    insert into public.level1_caps (membership_package_id, package_code, cap_amount, updated_by)
+    values (p_package_id, v_package.package_code, v_cap, p_actor)
+    on conflict (membership_package_id) do update
+      set cap_amount = excluded.cap_amount, updated_by = p_actor;
+  end if;
+
+  perform public.kmd_audit(p_actor, 'LEVEL1_CAP_CHANGE', null, null,
+    'level1_caps', p_package_id::text,
+    jsonb_build_object('packageCode', v_package.package_code, 'capAmount', v_before.cap_amount),
+    jsonb_build_object('packageCode', v_package.package_code, 'capAmount', v_cap),
+    case when v_cap is null
+      then 'Level 1 cap removed for ' || v_package.package_code || ' - the reward matrix applies'
+      else 'Level 1 cap for ' || v_package.package_code || ' set to ' || v_cap::text end,
+    false);
+
+  return jsonb_build_object('status','UPDATED','packageId', p_package_id,
+    'packageCode', v_package.package_code, 'capAmount', v_cap,
+    'previousCapAmount', v_before.cap_amount,
+    'reasonText', case when v_cap is null
+      then 'Cap removed for ' || v_package.package_code || '. Future Level 1 commissions use the matrix amount.'
+      else 'Level 1 cap for ' || v_package.package_code || ' is now ' || v_cap::text || '.' end);
+end $$;
+
+revoke all on function public.kmd_admin_set_level1_cap(uuid,uuid,numeric) from public, anon, authenticated;
+grant execute on function public.kmd_admin_set_level1_cap(uuid,uuid,numeric) to service_role;
+
+alter table public.point_ledger
+  add column if not exists beneficiary_package_code text,
+  add column if not exists uncapped_points numeric(14,2),
+  add column if not exists cap_applied numeric(14,2);
+
+comment on column public.point_ledger.uncapped_points is
+  'The matrix amount before any Level 1 cap was applied.';
+comment on column public.point_ledger.cap_applied is
+  'The Level 1 cap in force for the receiving sponsor at qualification time, when one applied.';

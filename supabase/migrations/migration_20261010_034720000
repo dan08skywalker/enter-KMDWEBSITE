@@ -1,0 +1,11 @@
+-- Verification cleanup: the test accounts' package pointers go back to their prior
+-- (empty) state. The orders, commissions and loyalty credits posted during the tests
+-- remain as the record; nothing historical was rewritten.
+update public.profiles set package_id = null where is_test and username in ('testsponsor1','testbuyer');
+
+select (select count(*) from public.profiles where is_test and package_id is not null) as test_members_with_package,
+       (select count(*) from public.level1_caps) as cap_rows,
+       (select count(*) from public.reward_configurations) as reward_configs,
+       count(*) filter (where not (public.kmd_reconcile_member_balance(id)->>'consistent')::boolean) as inconsistent_balances,
+       count(*) as members
+  from public.profiles where member_code is not null;

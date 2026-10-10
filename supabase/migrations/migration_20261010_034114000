@@ -1,0 +1,6 @@
+-- Back to Classic for the cap-below-matrix case, then a second purchase.
+update public.profiles set package_id = (select id from public.membership_packages where package_code='KMD-PKG-CLASSIC') where is_test and username='testsponsor1';
+select public.kmd_create_order((select id from public.products where sku='KMD-DOKUDAMI-001'), 1, (select id from public.profiles where username='testbuyer')) as dokudami_purchase;
+
+-- repeat confirmation of an already processed order must change nothing
+select public.kmd_confirm_payment('fb3997d5-37b2-47ab-9918-b7dd26e51a7e'::uuid, (select id from public.profiles where username='kmdadmin'), 'payment_confirmed')::text as repeat_confirmation;

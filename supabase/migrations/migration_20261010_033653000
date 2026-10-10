@@ -1,0 +1,142 @@
+-- ============================================================================
+-- One email address and one phone number per member account
+--
+-- Enforced by a trigger on profiles, so every write path is covered: registration,
+-- a member editing their own details, an administrator editing them, and background
+-- scripts. Existing rows are flagged for review, never merged or deleted.
+-- This is a new trigger (the name does not exist yet); no object is dropped.
+-- ============================================================================
+
+create or replace function public.kmd_normalize_phone(p_phone text)
+returns text
+language sql immutable as $$
+  with digits as (
+    select regexp_replace(coalesce(p_phone, ''), '[^0-9]', '', 'g') as d
+  )
+  select case
+    when d = '' then null
+    when d like '63%' and length(d) = 12 then '+' || d
+    when d like '0%'  and length(d) = 11 then '+63' || substr(d, 2)
+    when d like '9%'  and length(d) = 10 then '+63' || d
+    else '+' || d
+  end
+  from digits;
+$$;
+
+create or replace function public.kmd_contact_conflicts(
+  p_email text,
+  p_phone text,
+  p_exclude_member uuid default null
+) returns jsonb
+language sql stable security definer set search_path = public as $$
+  with candidates as (
+    select nullif(lower(trim(coalesce(p_email, ''))), '') as email,
+           public.kmd_normalize_phone(p_phone) as phone
+  )
+  select jsonb_build_object(
+    'emailTaken', exists (
+      select 1 from public.profiles p, candidates c
+       where c.email is not null
+         and p.id is distinct from p_exclude_member
+         and (lower(p.email) = c.email or lower(coalesce(p.contact_email, '')) = c.email)),
+    'phoneTaken', exists (
+      select 1 from public.profiles p, candidates c
+       where c.phone is not null
+         and p.id is distinct from p_exclude_member
+         and p.mobile_number is not null
+         and public.kmd_normalize_phone(p.mobile_number) = c.phone)
+  );
+$$;
+
+revoke all on function public.kmd_contact_conflicts(text,text,uuid) from public, anon, authenticated;
+grant execute on function public.kmd_contact_conflicts(text,text,uuid) to service_role;
+
+create or replace function public.kmd_guard_contact_unique()
+returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  v_phone text := public.kmd_normalize_phone(new.mobile_number);
+  v_email text := nullif(lower(trim(coalesce(new.email, ''))), '');
+  v_contact text := nullif(lower(trim(coalesce(new.contact_email, ''))), '');
+  v_conflicts jsonb;
+begin
+  if v_email is null and v_phone is null and v_contact is null then
+    return new;
+  end if;
+
+  if tg_op = 'UPDATE'
+     and public.kmd_normalize_phone(old.mobile_number) is not distinct from v_phone
+     and lower(coalesce(old.email, '')) is not distinct from lower(coalesce(new.email, ''))
+     and lower(coalesce(old.contact_email, '')) is not distinct from lower(coalesce(new.contact_email, '')) then
+    return new;
+  end if;
+
+  perform pg_advisory_xact_lock(hashtext('kmd-contact:' || coalesce(v_email, '') || '|' || coalesce(v_phone, '')));
+
+  v_conflicts := public.kmd_contact_conflicts(v_email, v_phone, new.id);
+
+  if (v_conflicts->>'phoneTaken')::boolean then
+    raise exception 'KMD_DUPLICATE_PHONE: This phone number already exists in the system.';
+  end if;
+
+  if v_contact is not null and v_contact is distinct from v_email then
+    if exists (select 1 from public.profiles p
+                where p.id is distinct from new.id
+                  and (lower(p.email) = v_contact or lower(coalesce(p.contact_email, '')) = v_contact)) then
+      raise exception 'KMD_DUPLICATE_EMAIL: This email address already exists in the system.';
+    end if;
+  end if;
+
+  if (v_conflicts->>'emailTaken')::boolean then
+    raise exception 'KMD_DUPLICATE_EMAIL: This email address already exists in the system.';
+  end if;
+
+  return new;
+end $$;
+
+create trigger kmd_profiles_contact_unique
+  before insert or update of mobile_number, email, contact_email on public.profiles
+  for each row execute function public.kmd_guard_contact_unique();
+
+revoke all on function public.kmd_guard_contact_unique() from public, anon, authenticated;
+grant execute on function public.kmd_guard_contact_unique() to service_role;
+
+create or replace function public.kmd_duplicate_contacts(p_actor uuid)
+returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when not public.kmd_is_admin(p_actor) then null else jsonb_build_object(
+    'phones', coalesce((
+      select jsonb_agg(grouped order by grouped->>'normalized')
+      from (
+        select jsonb_build_object(
+          'normalized', public.kmd_normalize_phone(p.mobile_number),
+          'count', count(*),
+          'members', jsonb_agg(jsonb_build_object(
+            'memberCode', p.member_code, 'memberId', p.id,
+            'storedValue', p.mobile_number, 'status', p.account_status)
+            order by p.member_code)) as grouped
+        from public.profiles p
+       where public.kmd_normalize_phone(p.mobile_number) is not null
+       group by public.kmd_normalize_phone(p.mobile_number)
+      having count(*) > 1
+      ) rows
+    ), '[]'::jsonb),
+    'emails', coalesce((
+      select jsonb_agg(grouped order by grouped->>'normalized')
+      from (
+        select jsonb_build_object(
+          'normalized', lower(trim(p.email)),
+          'count', count(*),
+          'members', jsonb_agg(jsonb_build_object(
+            'memberCode', p.member_code, 'memberId', p.id,
+            'storedValue', p.email, 'status', p.account_status)
+            order by p.member_code)) as grouped
+        from public.profiles p
+       group by lower(trim(p.email))
+      having count(*) > 1
+      ) rows
+    ), '[]'::jsonb)) end;
+$$;
+
+revoke all on function public.kmd_duplicate_contacts(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_duplicate_contacts(uuid) to service_role;

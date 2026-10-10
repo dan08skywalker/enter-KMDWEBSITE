@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { CreditCard } from "lucide-react";
+import { ArrowRight, CreditCard } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/auth-context";
 import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
@@ -132,6 +132,27 @@ export default function MemberLoyaltyCards() {
         title="My Loyalty Card"
         description="Cards are issued automatically when a membership package purchase is confirmed."
       />
+
+      {/*
+        An upgrade keeps the same account, sponsor, team and history: it is bought
+        through the existing membership packages page and activated when the payment
+        is confirmed.
+      */}
+      <div className="kmd-panel flex flex-wrap items-center justify-between gap-3 p-4">
+        <div>
+          <p className="text-sm font-semibold">Upgrade your membership</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Move to a higher tier from the membership packages page. Your account, sponsor, team and
+            history stay exactly as they are.
+          </p>
+        </div>
+        <Button asChild className="shrink-0">
+          <Link to="/packages">
+            Upgrade
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
 
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2">

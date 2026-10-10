@@ -3597,6 +3597,43 @@ export type Database = {
           },
         ]
       }
+      level1_caps: {
+        Row: {
+          cap_amount: number
+          created_at: string
+          is_active: boolean
+          membership_package_id: string
+          package_code: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          cap_amount: number
+          created_at?: string
+          is_active?: boolean
+          membership_package_id: string
+          package_code: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          cap_amount?: number
+          created_at?: string
+          is_active?: boolean
+          membership_package_id?: string
+          package_code?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "level1_caps_membership_package_id_fkey"
+            columns: ["membership_package_id"]
+            referencedRelation: "membership_packages"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       loyalty_credit_ledger: {
         Row: {
           balance_after: number | null
@@ -4193,8 +4230,10 @@ export type Database = {
           balance_before: number | null
           beneficiary_id: string
           beneficiary_member_code: string
+          beneficiary_package_code: string | null
           buyer_member_code: string | null
           buyer_profile_id: string | null
+          cap_applied: number | null
           created_at: string
           direction: string
           id: string
@@ -4217,6 +4256,7 @@ export type Database = {
           transaction_id: string
           transaction_type: string
           trigger_event: string | null
+          uncapped_points: number | null
           unilevel_level: number | null
         }
         Insert: {
@@ -4224,8 +4264,10 @@ export type Database = {
           balance_before?: number | null
           beneficiary_id: string
           beneficiary_member_code: string
+          beneficiary_package_code?: string | null
           buyer_member_code?: string | null
           buyer_profile_id?: string | null
+          cap_applied?: number | null
           created_at?: string
           direction: string
           id?: string
@@ -4248,6 +4290,7 @@ export type Database = {
           transaction_id: string
           transaction_type: string
           trigger_event?: string | null
+          uncapped_points?: number | null
           unilevel_level?: number | null
         }
         Update: {
@@ -4255,8 +4298,10 @@ export type Database = {
           balance_before?: number | null
           beneficiary_id?: string
           beneficiary_member_code?: string
+          beneficiary_package_code?: string | null
           buyer_member_code?: string | null
           buyer_profile_id?: string | null
+          cap_applied?: number | null
           created_at?: string
           direction?: string
           id?: string
@@ -4279,6 +4324,7 @@ export type Database = {
           transaction_id?: string
           transaction_type?: string
           trigger_event?: string | null
+          uncapped_points?: number | null
           unilevel_level?: number | null
         }
         Relationships: [
@@ -5336,6 +5382,10 @@ export type Database = {
         Args: { p_actor: string; p_dataset: string; p_filters?: Json }
         Returns: Json
       }
+      kmd_admin_level1_caps: {
+        Args: { p_actor: string }
+        Returns: Json
+      }
       kmd_admin_pricing_matrix: {
         Args: { p_actor: string }
         Returns: Json
@@ -5366,6 +5416,10 @@ export type Database = {
           p_status: string
           p_tracking?: string
         }
+        Returns: Json
+      }
+      kmd_admin_set_level1_cap: {
+        Args: { p_actor: string; p_cap_amount: number; p_package_id: string }
         Returns: Json
       }
       kmd_admin_set_member_price: {
@@ -5486,6 +5540,10 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_contact_conflicts: {
+        Args: { p_email: string; p_exclude_member?: string; p_phone: string }
+        Returns: Json
+      }
       kmd_convert_balance: {
         Args: {
           p_actor: string
@@ -5542,6 +5600,10 @@ export type Database = {
         Args: { p_identifier: string }
         Returns: Json
       }
+      kmd_duplicate_contacts: {
+        Args: { p_actor: string }
+        Returns: Json
+      }
       kmd_effective_unit_price: {
         Args: { p_member: string; p_product_id: string }
         Returns: number
@@ -5566,6 +5628,10 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: boolean
       }
+      kmd_level1_cap_for_package: {
+        Args: { p_package_id: string }
+        Returns: number
+      }
       kmd_loyalty_credit_balance: {
         Args: { p_member: string }
         Returns: number
@@ -5586,9 +5652,17 @@ export type Database = {
         Args: Record<PropertyKey, never>
         Returns: Json
       }
+      kmd_my_membership: {
+        Args: Record<PropertyKey, never>
+        Returns: Json
+      }
       kmd_my_wallet_balance: {
         Args: Record<PropertyKey, never>
         Returns: Json
+      }
+      kmd_normalize_phone: {
+        Args: { p_phone: string }
+        Returns: string
       }
       kmd_notifications_mark_read: {
         Args: { p_ids?: string[] }
@@ -5855,39 +5929,6 @@ export type Database = {
         }
         Relationships: []
       }
-      messages_2026_10_06: {
-        Row: {
-          event: string | null
-          extension: string
-          id: string
-          inserted_at: string
-          payload: Json | null
-          private: boolean | null
-          topic: string
-          updated_at: string
-        }
-        Insert: {
-          event?: string | null
-          extension: string
-          id?: string
-          inserted_at?: string
-          payload?: Json | null
-          private?: boolean | null
-          topic: string
-          updated_at?: string
-        }
-        Update: {
-          event?: string | null
-          extension?: string
-          id?: string
-          inserted_at?: string
-          payload?: Json | null
-          private?: boolean | null
-          topic?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       messages_2026_10_07: {
         Row: {
           event: string | null
@@ -6054,6 +6095,39 @@ export type Database = {
         Relationships: []
       }
       messages_2026_10_12: {
+        Row: {
+          event: string | null
+          extension: string
+          id: string
+          inserted_at: string
+          payload: Json | null
+          private: boolean | null
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          event?: string | null
+          extension: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          event?: string | null
+          extension?: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      messages_2026_10_13: {
         Row: {
           event: string | null
           extension: string

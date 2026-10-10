@@ -1,0 +1,38 @@
+-- Reviewed: three profile updates, two of which the new guard is expected to
+-- reject (the handler catches the refusal, so no write happens), and one no-op
+-- self-update. No row is deleted, and no unrelated data is touched.
+do $$
+declare
+  v_other_phone_message text;
+  v_other_email_message text;
+  v_self_ok text;
+begin
+  begin
+    update public.profiles set mobile_number = '+63 995 861 2854'
+     where username = 'testsponsor2';
+    v_other_phone_message := 'ACCEPTED (should have been rejected)';
+  exception when others then
+    v_other_phone_message := sqlerrm;
+  end;
+
+  begin
+    update public.profiles set contact_email = (select email from public.profiles where username = 'kmdadmin')
+     where username = 'testsponsor3';
+    v_other_email_message := 'ACCEPTED (should have been rejected)';
+  exception when others then
+    v_other_email_message := sqlerrm;
+  end;
+
+  begin
+    update public.profiles set mobile_number = mobile_number, contact_email = contact_email
+     where username = 'testsponsor2';
+    v_self_ok := 'accepted (own record) ' || (select mobile_number from public.profiles where username='testsponsor2');
+  exception when others then
+    v_self_ok := 'REJECTED (should have been accepted): ' || sqlerrm;
+  end;
+
+  create temp table kmd_contact_guard_results(phone_message text, email_message text, own_record text) on commit drop;
+  insert into kmd_contact_guard_results values (v_other_phone_message, v_other_email_message, v_self_ok);
+end $$;
+
+select * from kmd_contact_guard_results;

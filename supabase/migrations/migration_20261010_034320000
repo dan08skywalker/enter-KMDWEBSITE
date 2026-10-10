@@ -1,0 +1,4 @@
+-- The member's own record must still save (self excluded from the check).
+update public.profiles set mobile_number = mobile_number, contact_email = contact_email where username = 'testsponsor2';
+
+select username, mobile_number, public.kmd_normalize_phone(mobile_number) as normalized from public.profiles where username in ('testsponsor2','kmdadmin') order by username;

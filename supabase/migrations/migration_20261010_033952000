@@ -1,0 +1,1 @@
+select public.kmd_confirm_payment('081d6cff-d7b1-4399-8bbc-a018951f047b'::uuid, (select id from public.profiles where username='kmdadmin'), 'payment_confirmed')->>'status' as engine_status

@@ -75,6 +75,7 @@ import AdminLoyaltyAdjustments from "./pages/admin/loyalty-adjustments";
 import AdminWalletConversions from "./pages/admin/wallet-conversions";
 import AdminWalletPayments from "./pages/admin/wallet-payments";
 import AdminMemberPricing from "./pages/admin/member-pricing";
+import AdminLevel1Caps from "./pages/admin/level1-caps";
 import AdminRedemptions from "./pages/admin/redemptions";
 import AdminSupport from "./pages/admin/support";
 import AdminContent from "./pages/admin/content";
@@ -186,6 +187,7 @@ export const routers: Array<{
       { path: "loyalty-transactions", name: "admin-loyalty-transactions", element: <AdminLoyaltyTransactions /> },
       { path: "loyalty-adjustments", name: "admin-loyalty-adjustments", element: <AdminLoyaltyAdjustments /> },
       { path: "member-pricing", name: "admin-member-pricing", element: <AdminMemberPricing /> },
+      { path: "level1-caps", name: "admin-level1-caps", element: <AdminLevel1Caps /> },
       { path: "wallet-conversions", name: "admin-wallet-conversions", element: <AdminWalletConversions /> },
       { path: "wallet-payments", name: "admin-wallet-payments", element: <AdminWalletPayments /> },
       { path: "redemptions", name: "admin-redemptions", element: <AdminRedemptions /> },

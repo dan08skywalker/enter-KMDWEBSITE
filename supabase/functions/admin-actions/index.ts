@@ -382,6 +382,24 @@ Deno.serve(async (req) => {
           p_price: Number(body?.price ?? 0),
         });
 
+      case "level1_caps":
+        return run("kmd_admin_level1_caps", { p_actor: actorId });
+
+      case "set_level1_cap":
+        // One package cap. Validated, audited with the previous value, and applied
+        // only to future qualifying transactions.
+        return run("kmd_admin_set_level1_cap", {
+          p_actor: actorId,
+          p_package_id: String(body?.packageId ?? ""),
+          p_cap_amount:
+            body?.capAmount === undefined || body?.capAmount === null || body?.capAmount === ""
+              ? null
+              : Number(body.capAmount),
+        });
+
+      case "duplicate_contacts":
+        return run("kmd_duplicate_contacts", { p_actor: actorId });
+
       case "update_setting":
         return run("kmd_update_setting", {
           p_key: String(body?.key ?? ""),

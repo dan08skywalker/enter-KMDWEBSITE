@@ -1,0 +1,56 @@
+-- What the member's own dashboard needs: their package, the Level 1 cap that applies to
+-- them, and the higher tiers they are eligible to upgrade to.
+create or replace function public.kmd_my_membership()
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_member public.profiles%rowtype;
+  v_package public.membership_packages%rowtype;
+  v_cap numeric(14,2);
+  v_tier_order int;
+begin
+  if v_uid is null then
+    return null;
+  end if;
+
+  select * into v_member from public.profiles where id = v_uid;
+  if not found then
+    return null;
+  end if;
+
+  select * into v_package from public.membership_packages where id = v_member.package_id;
+
+  v_tier_order := case v_package.tier
+    when 'trial' then 1 when 'classic' then 2 when 'gold' then 3 when 'platinum' then 4 else 0 end;
+
+  v_cap := public.kmd_level1_cap_for_package(v_member.package_id);
+
+  return jsonb_build_object(
+    'packageCode', v_package.package_code,
+    'packageName', v_package.name,
+    'tier', v_package.tier,
+    'level1Cap', v_cap,
+    'level1Capped', v_cap is not null,
+    'eligibleUpgrades', coalesce((
+      select jsonb_agg(jsonb_build_object(
+        'packageCode', mp.package_code,
+        'packageName', mp.name,
+        'tier', mp.tier,
+        'sku', p.sku,
+        'productName', p.name,
+        'price', p.selling_price,
+        'regularPrice', p.regular_price,
+        'imageUrl', p.image_url)
+        order by case mp.tier when 'gold' then 1 when 'platinum' then 2 else 3 end, p.selling_price)
+      from public.membership_packages mp
+      join public.products p on p.id = mp.product_id
+      where mp.is_active and p.is_active
+        and case mp.tier when 'trial' then 1 when 'classic' then 2 when 'gold' then 3 when 'platinum' then 4 else 0 end > v_tier_order
+    ), '[]'::jsonb));
+end $$;
+
+revoke all on function public.kmd_my_membership() from public, anon;
+grant execute on function public.kmd_my_membership() to authenticated;
+
+select (public.kmd_my_membership()) is null as no_session_returns_null;

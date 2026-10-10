@@ -1,0 +1,6 @@
+-- (a) matrix amount BELOW the cap must not be increased: Classic sponsor, Classic package purchase (L1 = 300)
+select public.kmd_create_order((select id from public.products where sku='KMD-CLASSIC-001'), 1, (select id from public.profiles where username='testbuyer')) as classic_purchase;
+
+-- (b) an uncapped package: switch the receiving sponsor to Gold, then buy Gold again
+update public.profiles set package_id = (select id from public.membership_packages where package_code='KMD-PKG-GOLD') where is_test and username='testsponsor1';
+select public.kmd_create_order((select id from public.products where sku='KMD-GOLD-001'), 1, (select id from public.profiles where username='testbuyer')) as gold_purchase_uncapped_sponsor;

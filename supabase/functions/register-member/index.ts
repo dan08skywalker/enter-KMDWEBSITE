@@ -25,6 +25,7 @@ const ERROR_CODES: Record<string, string> = {
   KMD_VALIDATION: "VALIDATION",
   KMD_DUPLICATE_USERNAME: "DUPLICATE_USERNAME",
   KMD_DUPLICATE_EMAIL: "DUPLICATE_EMAIL",
+  KMD_DUPLICATE_PHONE: "DUPLICATE_PHONE",
   KMD_INVALID_SPONSOR: "INVALID_SPONSOR",
 };
 
@@ -127,7 +128,10 @@ Deno.serve(async (req) => {
       const message = createError?.message ?? "Could not create the account";
       console.error("register-member auth create failed:", message);
       if (/already|exists|registered/i.test(message)) {
-        return json({ error: "DUPLICATE_EMAIL", message: "That email address is already registered" });
+        return json({
+        error: "DUPLICATE_EMAIL",
+        message: "This email address already exists in the system.",
+      });
       }
       return json({ error: "AUTH_CREATE_FAILED", message }, 400);
     }

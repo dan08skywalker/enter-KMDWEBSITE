@@ -23,6 +23,7 @@ import { DataTable, type Column } from "@/components/kmd/data-table";
 import { EmptyState } from "@/components/kmd/empty-state";
 import { StatusBadge } from "@/components/kmd/status-badge";
 import { LoyaltyCard, type LoyaltyTier } from "@/components/kmd/loyalty-card";
+import { packageTier } from "@/lib/kmd/labels";
 import { LOYALTY_CARD_ASPECT } from "@/lib/kmd/constants";
 import { Points } from "@/components/kmd/amount";
 import { Button } from "@/components/ui/button";
@@ -40,6 +41,24 @@ function LeafAccent({ className }: { className?: string }) {
       <path d="M10 90C38 62 64 34 92 12" stroke="hsl(96 58% 45%)" strokeWidth="3" fill="none" />
     </svg>
   );
+}
+
+interface MembershipInfo {
+  packageCode: string | null;
+  packageName: string | null;
+  tier: string | null;
+  level1Cap: number | null;
+  level1Capped: boolean;
+  eligibleUpgrades: Array<{
+    packageCode: string;
+    packageName: string;
+    tier: string;
+    sku: string;
+    productName: string;
+    price: number;
+    regularPrice: number | null;
+    imageUrl: string | null;
+  }>;
 }
 
 function startOf(unit: "day" | "week" | "month"): Date {
@@ -60,6 +79,21 @@ export default function MemberDashboard() {
   const [pendingRedemptions, setPendingRedemptions] = useState<Redemption[]>([]);
   const [cardTier, setCardTier] = useState<LoyaltyTier | null>(null);
   const [cardTierLoading, setCardTierLoading] = useState(true);
+  const [membership, setMembership] = useState<MembershipInfo | null>(null);
+
+  // The member's own package, their Level 1 cap and the higher tiers they may
+  // upgrade to. All decided on the server from their own records.
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      const { data, error } = await supabase.rpc("kmd_my_membership");
+      if (error) console.error("Could not read the membership details:", error.message);
+      if (active) setMembership((data as unknown as MembershipInfo | null) ?? null);
+    })();
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     const packageId = profile?.package_id;
@@ -330,6 +364,66 @@ export default function MemberDashboard() {
                 <span className="block text-[11px] text-muted-foreground">Use your points</span>
               </span>
             </Link>
+          </div>
+
+          {/* ---- membership tier, Level 1 cap and upgrades ---- */}
+          <div className="kmd-panel p-4 sm:p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-base font-semibold">Membership</h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {membership?.packageName ?? "No package yet"}
+                  {membership?.tier ? ` · ${packageTier(membership.tier).label} tier` : ""}
+                </p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  {membership?.level1Capped
+                    ? `Your Level 1 earning cap: ${formatPeso(membership.level1Cap)} per qualifying purchase`
+                    : "No Level 1 cap — the reward matrix applies"}
+                </p>
+              </div>
+              <Button asChild className="shrink-0">
+                <Link to="/packages">
+                  Upgrade
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
+            </div>
+
+            {(membership?.eligibleUpgrades?.length ?? 0) > 0 ? (
+              <ul className="mt-4 grid gap-2 sm:grid-cols-2">
+                {membership?.eligibleUpgrades.map((entry) => (
+                  <li key={entry.packageCode}>
+                    <Link
+                      to="/packages"
+                      className="flex items-center gap-3 rounded-lg border p-3 transition-colors hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="h-10 w-10 shrink-0 overflow-hidden rounded-md border bg-secondary">
+                        {entry.imageUrl ? (
+                          <img
+                            src={entry.imageUrl}
+                            alt=""
+                            crossOrigin="anonymous"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : null}
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block truncate text-xs font-semibold">
+                          {entry.packageName}
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground">
+                          {packageTier(entry.tier).label} · {formatPeso(entry.price)}
+                        </span>
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-[11px] text-muted-foreground">
+                You are on the highest membership tier.
+              </p>
+            )}
           </div>
         </div>
 

@@ -75,6 +75,9 @@ export default function AdminMembers() {
   const [members, setMembers] = useState<Profile[]>([]);
   const [packages, setPackages] = useState<MembershipPackage[]>([]);
   const [packageNames, setPackageNames] = useState<Record<string, string>>({});
+  /** package code -> Level 1 cap, and the code for each package id. */
+  const [level1Caps, setLevel1Caps] = useState<Record<string, number>>({});
+  const [packageCodes, setPackageCodes] = useState<Record<string, string>>({});
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("all");
   const [includeTest, setIncludeTest] = useState(false);
@@ -113,6 +116,21 @@ export default function AdminMembers() {
     const packageRows = (packageResult.data ?? []) as unknown as MembershipPackage[];
     setPackages(packageRows);
     setPackageNames(Object.fromEntries(packageRows.map((pkg) => [pkg.id, pkg.name])));
+    setPackageCodes(Object.fromEntries(packageRows.map((pkg) => [pkg.id, pkg.package_code])));
+
+    // The Level 1 cap that applies to a member follows the package they hold.
+    const { data: capRows, error: capError } = await supabase
+      .from("level1_caps")
+      .select("package_code, cap_amount");
+    if (capError) console.error("Could not load the Level 1 caps:", capError.message);
+    setLevel1Caps(
+      Object.fromEntries(
+        ((capRows ?? []) as Array<{ package_code: string; cap_amount: number }>).map((row) => [
+          row.package_code,
+          row.cap_amount,
+        ]),
+      ),
+    );
     setLoading(false);
   };
 
@@ -317,6 +335,23 @@ export default function AdminMembers() {
         const name = row.package_id ? packageNames[row.package_id] : null;
         if (!name) return <span className="text-xs text-muted-foreground">None</span>;
         return <StatusBadge label={packageTier(name.toLowerCase().includes("gold") ? "gold" : name.toLowerCase().includes("platinum") ? "platinum" : name.toLowerCase().includes("classic") ? "classic" : "trial").label} tone={packageTier(name.toLowerCase().includes("gold") ? "gold" : name.toLowerCase().includes("platinum") ? "platinum" : name.toLowerCase().includes("classic") ? "classic" : "trial").tone} />;
+      },
+    },
+    {
+      key: "level1Cap",
+      header: "Level 1 cap",
+      className: "text-right",
+      cell: (row) => {
+        const code = row.package_id ? packageCodes[row.package_id] : null;
+        const cap = code ? level1Caps[code] : undefined;
+        if (cap === undefined) {
+          return <span className="text-[11px] text-muted-foreground">Matrix</span>;
+        }
+        return (
+          <span className="text-[11px] font-semibold tabular-nums" title="Per qualifying purchase">
+            {formatPeso(cap)}
+          </span>
+        );
       },
     },
     { key: "type", header: "Type", cell: (row) => <span className="text-xs uppercase">{row.account_type}</span> },
