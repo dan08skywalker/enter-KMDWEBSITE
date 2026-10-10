@@ -60,17 +60,6 @@ export function BrandTile() {
       <p className="kmd-eyebrow mt-4 text-gold">{COMPANY.legalParent}</p>
       <h3 className="mt-2 text-lg font-bold">{COMPANY.positioning}</h3>
       <p className="mt-2 text-xs leading-relaxed text-white/80">{COMPANY.parentBlurb}</p>
-      <p className="mt-4 text-[11px] text-white/70">
-        Learn more at{" "}
-        <a
-          href="https://www.greenchoyce.com"
-          target="_blank"
-          rel="noreferrer noopener"
-          className="font-semibold text-gold underline underline-offset-2"
-        >
-          greenchoyce.com
-        </a>
-      </p>
     </div>
   );
 }
