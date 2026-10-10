@@ -3451,6 +3451,109 @@ export type Database = {
           },
         ]
       }
+      client_requests: {
+        Row: {
+          admin_notes: string | null
+          attachment_paths: Json
+          business_name: string | null
+          client_address: string | null
+          client_name: string
+          content_supplied: string | null
+          created_at: string
+          dedupe_key: string
+          design_references: string | null
+          email: string
+          estimated_total: number
+          hosting_preference: string | null
+          id: string
+          items: Json
+          learning_goals: string | null
+          maintenance_choice: string | null
+          maintenance_preference: string | null
+          phone: string
+          preferred_completion: string | null
+          preferred_domain: string | null
+          products_services: string | null
+          request_number: string
+          request_type: string
+          required_features: string | null
+          reviewed_at: string | null
+          reviewed_by: string | null
+          status: string
+          submitted_at: string
+          updated_at: string
+        }
+        Insert: {
+          admin_notes?: string | null
+          attachment_paths?: Json
+          business_name?: string | null
+          client_address?: string | null
+          client_name: string
+          content_supplied?: string | null
+          created_at?: string
+          dedupe_key: string
+          design_references?: string | null
+          email: string
+          estimated_total?: number
+          hosting_preference?: string | null
+          id?: string
+          items?: Json
+          learning_goals?: string | null
+          maintenance_choice?: string | null
+          maintenance_preference?: string | null
+          phone: string
+          preferred_completion?: string | null
+          preferred_domain?: string | null
+          products_services?: string | null
+          request_number: string
+          request_type?: string
+          required_features?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string
+          updated_at?: string
+        }
+        Update: {
+          admin_notes?: string | null
+          attachment_paths?: Json
+          business_name?: string | null
+          client_address?: string | null
+          client_name?: string
+          content_supplied?: string | null
+          created_at?: string
+          dedupe_key?: string
+          design_references?: string | null
+          email?: string
+          estimated_total?: number
+          hosting_preference?: string | null
+          id?: string
+          items?: Json
+          learning_goals?: string | null
+          maintenance_choice?: string | null
+          maintenance_preference?: string | null
+          phone?: string
+          preferred_completion?: string | null
+          preferred_domain?: string | null
+          products_services?: string | null
+          request_number?: string
+          request_type?: string
+          required_features?: string | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          status?: string
+          submitted_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "client_requests_reviewed_by_fkey"
+            columns: ["reviewed_by"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       content_posts: {
         Row: {
           author_id: string | null
@@ -3550,6 +3653,78 @@ export type Database = {
           name?: string
           shipping_fee?: number
           sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      digital_offerings: {
+        Row: {
+          annual_fee: number | null
+          annual_fee_label: string | null
+          annual_fee_option: string
+          created_at: string
+          description: string | null
+          id: string
+          inclusions: Json
+          is_active: boolean
+          label: string
+          maintenance_options: Json
+          name: string
+          offering_group: string
+          offering_key: string
+          payment_terms_mode: string
+          payment_terms_note: string | null
+          price: number
+          promo_price: number | null
+          regular_price: number | null
+          sort_order: number
+          summary: string | null
+          updated_at: string
+        }
+        Insert: {
+          annual_fee?: number | null
+          annual_fee_label?: string | null
+          annual_fee_option?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          inclusions?: Json
+          is_active?: boolean
+          label: string
+          maintenance_options?: Json
+          name: string
+          offering_group: string
+          offering_key: string
+          payment_terms_mode?: string
+          payment_terms_note?: string | null
+          price?: number
+          promo_price?: number | null
+          regular_price?: number | null
+          sort_order?: number
+          summary?: string | null
+          updated_at?: string
+        }
+        Update: {
+          annual_fee?: number | null
+          annual_fee_label?: string | null
+          annual_fee_option?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          inclusions?: Json
+          is_active?: boolean
+          label?: string
+          maintenance_options?: Json
+          name?: string
+          offering_group?: string
+          offering_key?: string
+          payment_terms_mode?: string
+          payment_terms_note?: string | null
+          price?: number
+          promo_price?: number | null
+          regular_price?: number | null
+          sort_order?: number
+          summary?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -4541,6 +4716,142 @@ export type Database = {
           },
         ]
       }
+      quotations: {
+        Row: {
+          additional_work: Json
+          balance_amount: number | null
+          business_name: string | null
+          client_address: string | null
+          client_name: string
+          contact_number: string | null
+          created_at: string
+          created_by: string | null
+          deliverables: string | null
+          deposit_amount: number | null
+          discount: number
+          email: string | null
+          id: string
+          included_fees_total: number
+          items: Json
+          maintenance_mode: string
+          maintenance_note: string | null
+          optional_fees: Json
+          payment_terms_mode: string
+          payment_terms_note: string | null
+          prepared_by: string
+          project_requirements: string | null
+          quotation_date: string
+          quotation_number: string
+          request_id: string | null
+          scope: string | null
+          separate_annual_total: number
+          separate_fees_total: number
+          separate_monthly_total: number
+          services_requested: Json
+          status: string
+          subtotal: number
+          target_completion: string | null
+          tax_amount: number
+          terms: string | null
+          total_contract_price: number
+          updated_at: string
+          valid_until: string | null
+        }
+        Insert: {
+          additional_work?: Json
+          balance_amount?: number | null
+          business_name?: string | null
+          client_address?: string | null
+          client_name: string
+          contact_number?: string | null
+          created_at?: string
+          created_by?: string | null
+          deliverables?: string | null
+          deposit_amount?: number | null
+          discount?: number
+          email?: string | null
+          id?: string
+          included_fees_total?: number
+          items?: Json
+          maintenance_mode?: string
+          maintenance_note?: string | null
+          optional_fees?: Json
+          payment_terms_mode?: string
+          payment_terms_note?: string | null
+          prepared_by?: string
+          project_requirements?: string | null
+          quotation_date?: string
+          quotation_number: string
+          request_id?: string | null
+          scope?: string | null
+          separate_annual_total?: number
+          separate_fees_total?: number
+          separate_monthly_total?: number
+          services_requested?: Json
+          status?: string
+          subtotal?: number
+          target_completion?: string | null
+          tax_amount?: number
+          terms?: string | null
+          total_contract_price?: number
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Update: {
+          additional_work?: Json
+          balance_amount?: number | null
+          business_name?: string | null
+          client_address?: string | null
+          client_name?: string
+          contact_number?: string | null
+          created_at?: string
+          created_by?: string | null
+          deliverables?: string | null
+          deposit_amount?: number | null
+          discount?: number
+          email?: string | null
+          id?: string
+          included_fees_total?: number
+          items?: Json
+          maintenance_mode?: string
+          maintenance_note?: string | null
+          optional_fees?: Json
+          payment_terms_mode?: string
+          payment_terms_note?: string | null
+          prepared_by?: string
+          project_requirements?: string | null
+          quotation_date?: string
+          quotation_number?: string
+          request_id?: string | null
+          scope?: string | null
+          separate_annual_total?: number
+          separate_fees_total?: number
+          separate_monthly_total?: number
+          services_requested?: Json
+          status?: string
+          subtotal?: number
+          target_completion?: string | null
+          tax_amount?: number
+          terms?: string | null
+          total_contract_price?: number
+          updated_at?: string
+          valid_until?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quotations_created_by_fkey"
+            columns: ["created_by"]
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quotations_request_id_fkey"
+            columns: ["request_id"]
+            referencedRelation: "client_requests"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       redemptions: {
         Row: {
           bank_account_name: string | null
@@ -5378,6 +5689,19 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_admin_client_request_update: {
+        Args: {
+          p_actor: string
+          p_notes: string
+          p_request_id: string
+          p_status: string
+        }
+        Returns: Json
+      }
+      kmd_admin_digital_offering_save: {
+        Args: { p_actor: string; p_payload: Json }
+        Returns: Json
+      }
       kmd_admin_export: {
         Args: { p_actor: string; p_dataset: string; p_filters?: Json }
         Returns: Json
@@ -5388,6 +5712,10 @@ export type Database = {
       }
       kmd_admin_pricing_matrix: {
         Args: { p_actor: string }
+        Returns: Json
+      }
+      kmd_admin_quotation_save: {
+        Args: { p_actor: string; p_payload: Json }
         Returns: Json
       }
       kmd_admin_review_payment_account: {
@@ -5540,6 +5868,10 @@ export type Database = {
         Args: { p_contact: string; p_order_number: string }
         Returns: Json
       }
+      kmd_client_request_submit: {
+        Args: { p_payload: Json }
+        Returns: Json
+      }
       kmd_confirm_payment: {
         Args: {
           p_actor?: string
@@ -5667,6 +5999,10 @@ export type Database = {
       kmd_my_wallet_balance: {
         Args: Record<PropertyKey, never>
         Returns: Json
+      }
+      kmd_next_document_number: {
+        Args: { p_kind: string }
+        Returns: string
       }
       kmd_normalize_phone: {
         Args: { p_phone: string }

@@ -1,0 +1,86 @@
+-- Verification: quotation totals, separate recurring charges, and the 50/50 project terms.
+create temporary table v_actor as select id from public.profiles where username = 'kmdadmin';
+
+-- ---- A: an ebook-only quotation must NOT carry the 50/50 project terms ----
+select 'A ebook quotation' as step, public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'requestId', (select id from public.client_requests where request_number = 'KMD-REQ-2026-0001'),
+    'clientName', 'Order Test',
+    'email', 'ordertest@example.com',
+    'items', jsonb_build_array(
+      jsonb_build_object('description', 'Package B — Create Landing Pages Without Coding (ebook)', 'qty', 1, 'amount', 3800),
+      jsonb_build_object('description', 'Package D — Build an E-commerce Website with Chatbot Automation (live session, certificate, ebook)', 'qty', 1, 'amount', 24990)
+    ),
+    'paymentTermsMode', 'product_default',
+    'paymentTermsNote', 'Payment in full on enrolment, as configured by the administrator.',
+    'status', 'issued'
+  )
+)->'quotation' as result;
+
+-- ---- a service request to build against ----
+select 'service request' as step, public.kmd_client_request_submit(jsonb_build_object(
+  'clientName', 'Reyes Trading', 'phone', '0918 222 3333', 'email', 'reyes@example.com',
+  'businessName', 'Reyes Trading', 'clientAddress', 'Tiguma, Pagadian City',
+  'productsServices', 'Hardware and home improvement supplies',
+  'requiredFeatures', 'Product pages, cart, GCash checkout, delivery fee per zone',
+  'hostingPreference', 'Hosting setup and management requested',
+  'itemKeys', jsonb_build_array('SVC-LANDING', 'SVC-ECOM-5'))
+)::text as result;
+
+-- ---- B: hosting billed separately, project 50/50 ----
+select 'B separate hosting' as step, public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'requestId', (select id from public.client_requests where client_name = 'Reyes Trading'),
+    'clientName', 'Reyes Trading',
+    'businessName', 'Reyes Trading',
+    'items', jsonb_build_array(
+      jsonb_build_object('description', 'Landing page', 'qty', 1, 'amount', 1980),
+      jsonb_build_object('description', 'E-commerce website with up to 5 products', 'qty', 1, 'amount', 7500)
+    ),
+    'optionalFees', jsonb_build_array(
+      jsonb_build_object('kind', 'hosting', 'description', 'Hosting', 'amount', 1500, 'per', 'year', 'includedInTotal', false)
+    ),
+    'paymentTermsMode', 'project_50_50',
+    'status', 'issued'
+  )
+)->'quotation' as result;
+
+-- ---- C: the same hosting folded into the total, counted exactly once ----
+select 'C hosting included' as step, public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'requestId', (select id from public.client_requests where client_name = 'Reyes Trading'),
+    'clientName', 'Reyes Trading',
+    'items', jsonb_build_array(
+      jsonb_build_object('description', 'Landing page', 'qty', 1, 'amount', 1980),
+      jsonb_build_object('description', 'E-commerce website with up to 5 products', 'qty', 1, 'amount', 7500)
+    ),
+    'optionalFees', jsonb_build_array(
+      jsonb_build_object('kind', 'hosting', 'description', 'Hosting — first year included in the contract price', 'amount', 1500, 'per', 'year', 'includedInTotal', true)
+    ),
+    'paymentTermsMode', 'project_50_50',
+    'status', 'issued'
+  )
+)->'quotation' as result;
+
+-- ---- D: the same recurring charge twice must be refused ----
+select 'D double hosting' as step, public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'clientName', 'Reyes Trading',
+    'items', jsonb_build_array(jsonb_build_object('description', 'Landing page', 'qty', 1, 'amount', 1980)),
+    'optionalFees', jsonb_build_array(
+      jsonb_build_object('kind', 'hosting', 'description', 'Hosting', 'amount', 1500, 'per', 'year', 'includedInTotal', false),
+      jsonb_build_object('kind', 'hosting', 'description', 'Hosting again', 'amount', 1500, 'per', 'year', 'includedInTotal', false)
+    ),
+    'paymentTermsMode', 'project_50_50',
+    'status', 'draft'
+  )
+)::text as result;
+
+select quotation_number, client_name, subtotal, included_fees_total, total_contract_price,
+       separate_fees_total, separate_annual_total, deposit_amount, balance_amount,
+       payment_terms_mode, status
+  from public.quotations order by quotation_date, quotation_number;

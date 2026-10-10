@@ -1,0 +1,6 @@
+-- Housekeeping, continued: the two remaining verification requests (Reyes Trading
+-- and Dela Cruz Direct Selling) were created by me minutes ago to prove the
+-- submission and quotation rules. They are not client data.
+delete from public.client_requests
+ where request_number in ('KMD-REQ-2026-0003', 'KMD-REQ-2026-0004')
+   and email in ('reyes@example.com', 'delacruz@example.com');

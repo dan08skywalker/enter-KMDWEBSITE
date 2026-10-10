@@ -26,6 +26,8 @@ import CartPage from "./pages/site/cart";
 import CheckoutPage from "./pages/site/checkout";
 import OrderConfirmationPage from "./pages/site/order";
 import TrackOrderPage from "./pages/site/track";
+import DigitalSolutionsPage from "./pages/site/digital";
+import DigitalRequestPage from "./pages/site/digital/request";
 
 /* ---------------- account ---------------- */
 import Login from "./pages/login";
@@ -81,6 +83,10 @@ import AdminSupport from "./pages/admin/support";
 import AdminContent from "./pages/admin/content";
 import AdminAuditLogs from "./pages/admin/audit-logs";
 import AdminSettings from "./pages/admin/settings";
+import AdminDigitalRequests from "./pages/admin/digital-requests";
+import AdminQuotations from "./pages/admin/quotations";
+import AdminQuotationDetail from "./pages/admin/quotations/detail";
+import AdminDigitalOfferings from "./pages/admin/digital-offerings";
 
 function MemberArea() {
   return (
@@ -131,6 +137,8 @@ export const routers: Array<{
   { path: "/checkout", name: "checkout", element: <CheckoutPage /> },
   { path: "/order/:orderNumber", name: "order-confirmation", element: <OrderConfirmationPage /> },
   { path: "/track", name: "track-order", element: <TrackOrderPage /> },
+  { path: "/digital-solutions", name: "digital-solutions", element: <DigitalSolutionsPage /> },
+  { path: "/digital-solutions/request", name: "digital-solutions-request", element: <DigitalRequestPage /> },
 
   /* ---------------- account ---------------- */
   { path: "/login", name: "login", element: <Login /> },
@@ -194,6 +202,10 @@ export const routers: Array<{
       { path: "support", name: "admin-support", element: <AdminSupport /> },
       { path: "content", name: "admin-content", element: <AdminContent /> },
       { path: "audit-logs", name: "admin-audit-logs", element: <AdminAuditLogs /> },
+      { path: "digital-requests", name: "admin-digital-requests", element: <AdminDigitalRequests /> },
+      { path: "quotations", name: "admin-quotations", element: <AdminQuotations /> },
+      { path: "quotations/:quotationId", name: "admin-quotation-detail", element: <AdminQuotationDetail /> },
+      { path: "digital-offerings", name: "admin-digital-offerings", element: <AdminDigitalOfferings /> },
       { path: "settings", name: "admin-settings", element: <AdminSettings /> },
     ],
   },

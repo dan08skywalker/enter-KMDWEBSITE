@@ -1,0 +1,38 @@
+-- Housekeeping: remove only the rows created by this change's own verification run.
+-- These two requests and two quotations were created by me minutes ago while
+-- proving the submission and quotation rules; they are not client data.
+delete from public.quotations
+ where quotation_number in ('KMD-2026-0001', 'KMD-2026-0002')
+   and client_name in ('Order Test', 'Dela Cruz Direct Selling');
+
+delete from public.client_requests
+ where request_number in ('KMD-REQ-2026-0001', 'KMD-REQ-2026-0002')
+   and email in ('ordertest@example.com', 'reyes@example.com', 'delacruz@example.com');
+
+-- Nothing in the new module is wired to the reward or pricing systems.
+select 'digital offerings linked to products' as check_name, count(*)::text as result
+  from public.digital_offerings o join public.products p on p.sku = o.offering_key
+union all
+select 'reward configurations for digital offerings', count(*)::text
+  from public.reward_configurations rc
+  join public.digital_offerings o on o.offering_key = rc.product_id::text
+union all
+select 'quotations remaining', count(*)::text from public.quotations
+union all
+select 'client requests remaining', count(*)::text from public.client_requests
+union all
+select 'digital offerings published', count(*)::text from public.digital_offerings where is_active
+union all
+select 'products unchanged (12 expected)', count(*)::text from public.products
+union all
+select 'membership packages unchanged (6 expected)', count(*)::text from public.membership_packages
+union all
+select 'reward configurations unchanged (12 expected)', count(*)::text from public.reward_configurations
+union all
+select 'unilevel ledger entries unchanged', count(*)::text from public.point_ledger
+union all
+select 'loyalty ledger entries unchanged', count(*)::text from public.loyalty_credit_ledger
+union all
+select 'orders unchanged', count(*)::text from public.orders
+union all
+select 'audit rows written by this module', count(*)::text from public.audit_logs where action in ('DIGITAL_OFFERING_SAVE','QUOTATION_SAVE','QUOTATION_CREATE','CLIENT_REQUEST_UPDATE');

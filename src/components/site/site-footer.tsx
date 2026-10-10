@@ -10,6 +10,7 @@ const QUICK_LINKS = [
   { key: "nav.about", to: "/about" },
   { key: "nav.products", to: "/products" },
   { key: "nav.shop", to: "/shop" },
+  { key: "nav.digital", to: "/digital-solutions" },
   { key: "nav.membership", to: "/packages" },
   { key: "nav.referralProgram", to: "/referral-program" },
   { key: "nav.testimonials", to: "/testimonials" },

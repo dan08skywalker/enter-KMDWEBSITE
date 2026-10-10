@@ -1,0 +1,283 @@
+-- Fix: an update resolves anything the payload omits from the saved quotation,
+-- so a partial save can never silently zero the items, the totals or the terms.
+create or replace function public.kmd_admin_quotation_save(p_actor uuid, p_payload jsonb)
+returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_id uuid := nullif(btrim(coalesce(p_payload ->> 'quotationId', '')), '')::uuid;
+  v_previous public.quotations%rowtype;
+  v_is_update boolean := false;
+  v_request public.client_requests%rowtype;
+  v_request_id uuid := nullif(btrim(coalesce(p_payload ->> 'requestId', '')), '')::uuid;
+  v_items jsonb;
+  v_additional jsonb;
+  v_fees jsonb;
+  v_fee jsonb;
+  v_kinds text[] := '{}'::text[];
+  v_kind text;
+  v_amount numeric;
+  v_percent numeric;
+  v_subtotal numeric := 0;
+  v_included numeric := 0;
+  v_separate numeric := 0;
+  v_annual numeric := 0;
+  v_monthly numeric := 0;
+  v_discount numeric;
+  v_tax numeric;
+  v_total numeric := 0;
+  v_mode text;
+  v_maintenance text;
+  v_maintenance_note text;
+  v_status text;
+  v_number text;
+  v_number_created boolean := false;
+  v_deposit numeric;
+  v_balance numeric;
+  v_row public.quotations%rowtype;
+begin
+  if v_id is not null then
+    select * into v_previous from public.quotations where id = v_id;
+    if v_previous.id is null then
+      return jsonb_build_object('status', 'FAILED', 'reasonText', 'That quotation no longer exists.');
+    end if;
+    v_is_update := true;
+  end if;
+
+  -- Present value, else the saved value, else the default.
+  v_items := coalesce(p_payload -> 'items', v_previous.items, '[]'::jsonb);
+  v_additional := coalesce(p_payload -> 'additionalWork', v_previous.additional_work, '[]'::jsonb);
+  v_fees := coalesce(p_payload -> 'optionalFees', v_previous.optional_fees, '[]'::jsonb);
+  v_discount := coalesce(nullif(btrim(coalesce(p_payload ->> 'discount', '')), '')::numeric, v_previous.discount, 0);
+  v_tax := coalesce(nullif(btrim(coalesce(p_payload ->> 'taxAmount', '')), '')::numeric, v_previous.tax_amount, 0);
+  v_mode := coalesce(nullif(btrim(coalesce(p_payload ->> 'paymentTermsMode', '')), ''), v_previous.payment_terms_mode, 'product_default');
+  v_maintenance := coalesce(nullif(btrim(coalesce(p_payload ->> 'maintenanceMode', '')), ''), v_previous.maintenance_mode, 'none');
+  v_maintenance_note := coalesce(nullif(btrim(coalesce(p_payload ->> 'maintenanceNote', '')), ''), v_previous.maintenance_note);
+  v_status := coalesce(nullif(btrim(coalesce(p_payload ->> 'status', '')), ''), v_previous.status, 'draft');
+
+  if v_status not in ('draft', 'issued', 'accepted', 'void') then
+    return jsonb_build_object('status', 'FAILED', 'reasonText', 'Unknown quotation status.');
+  end if;
+  if length(coalesce(v_mode, '')) = 0 then v_mode := 'product_default'; end if;
+  if length(coalesce(v_maintenance, '')) = 0 then v_maintenance := 'none'; end if;
+  if v_mode not in ('product_default', 'project_50_50') then
+    return jsonb_build_object('status', 'FAILED', 'reasonText', 'Unknown payment terms.');
+  end if;
+  if v_maintenance not in ('none', 'co_partner_5_percent', 'client_monthly_50000') then
+    return jsonb_build_object('status', 'FAILED', 'reasonText', 'Choose one maintenance arrangement, or none.');
+  end if;
+
+  select coalesce(sum(coalesce(nullif(line ->> 'amount', '')::numeric, 0)), 0)
+    into v_subtotal
+    from jsonb_array_elements(v_items || v_additional) as line;
+
+  if v_subtotal < 0 or v_discount < 0 or v_tax < 0 then
+    return jsonb_build_object('status', 'FAILED', 'reasonText', 'Amounts cannot be negative.');
+  end if;
+  if v_discount > v_subtotal + v_tax then
+    return jsonb_build_object('status', 'FAILED', 'reasonText', 'The discount cannot be larger than the quoted work.');
+  end if;
+
+  for v_fee in select * from jsonb_array_elements(v_fees) loop
+    v_kind := coalesce(nullif(btrim(coalesce(v_fee ->> 'kind', '')), ''), 'other');
+    v_amount := coalesce(nullif(btrim(coalesce(v_fee ->> 'amount', '')), '')::numeric, 0);
+    v_percent := coalesce(nullif(btrim(coalesce(v_fee ->> 'percent', '')), '')::numeric, 0);
+
+    if v_kind not in ('maintenance', 'domain', 'hosting', 'other') then
+      return jsonb_build_object('status', 'FAILED', 'reasonText', format('Unknown recurring charge: %s', v_kind));
+    end if;
+    if v_amount < 0 or v_percent < 0 then
+      return jsonb_build_object('status', 'FAILED', 'reasonText', 'A recurring charge cannot be negative.');
+    end if;
+
+    if v_kind <> 'other' and v_kind = any (v_kinds) then
+      return jsonb_build_object(
+        'status', 'FAILED',
+        'reasonText', format('Only one %s charge can be recorded, so it is never listed or billed twice.', v_kind)
+      );
+    end if;
+    v_kinds := array_append(v_kinds, v_kind);
+
+    if v_percent > 0 then
+      null;
+    elsif coalesce((v_fee ->> 'includedInTotal')::boolean, false) then
+      v_included := v_included + v_amount;
+    else
+      v_separate := v_separate + v_amount;
+      if lower(coalesce(v_fee ->> 'per', '')) in ('year', 'annual', 'annually') then
+        v_annual := v_annual + v_amount;
+      elsif lower(coalesce(v_fee ->> 'per', '')) in ('month', 'monthly') then
+        v_monthly := v_monthly + v_amount;
+      end if;
+    end if;
+  end loop;
+
+  v_total := greatest(v_subtotal + v_included - v_discount + v_tax, 0);
+
+  if v_mode = 'project_50_50' then
+    v_deposit := round(v_total / 2, 2);
+    v_balance := v_total - v_deposit;
+  else
+    v_deposit := null;
+    v_balance := null;
+  end if;
+
+  if v_maintenance = 'co_partner_5_percent' and v_maintenance_note is null and v_status in ('issued', 'accepted') then
+    return jsonb_build_object(
+      'status', 'FAILED',
+      'reasonText', 'Record the agreed basis and the qualifying entry-pack encoding rules before issuing a quotation that applies the 5% co-partner arrangement.'
+    );
+  end if;
+
+  v_request_id := coalesce(v_request_id, v_previous.request_id);
+  if v_request_id is not null then
+    select * into v_request from public.client_requests where id = v_request_id;
+    if v_request.id is null then
+      if v_is_update then v_request_id := v_previous.request_id; end if;
+    end if;
+  end if;
+
+  if not v_is_update then
+    v_number := public.kmd_next_document_number('quotation');
+    v_number_created := true;
+
+    insert into public.quotations (
+      quotation_number, request_id, quotation_date, valid_until, target_completion,
+      client_name, client_address, contact_number, email, business_name,
+      items, additional_work, services_requested, project_requirements, scope, deliverables,
+      subtotal, discount, tax_amount, included_fees_total, total_contract_price, optional_fees,
+      separate_fees_total, separate_annual_total, separate_monthly_total,
+      maintenance_mode, maintenance_note, payment_terms_mode, payment_terms_note,
+      deposit_amount, balance_amount, terms, prepared_by, status, created_by, updated_at
+    ) values (
+      v_number, v_request_id,
+      coalesce(nullif(btrim(coalesce(p_payload ->> 'quotationDate', '')), '')::date, (now() at time zone 'Asia/Manila')::date),
+      nullif(btrim(coalesce(p_payload ->> 'validUntil', '')), '')::date,
+      nullif(btrim(coalesce(p_payload ->> 'targetCompletion', '')), '')::date,
+      coalesce(nullif(btrim(coalesce(p_payload ->> 'clientName', '')), ''), v_request.client_name, 'Client to be confirmed'),
+      nullif(btrim(coalesce(p_payload ->> 'clientAddress', '')), ''),
+      nullif(btrim(coalesce(p_payload ->> 'contactNumber', '')), ''),
+      nullif(btrim(coalesce(p_payload ->> 'email', '')), ''),
+      nullif(btrim(coalesce(p_payload ->> 'businessName', '')), ''),
+      v_items, v_additional, coalesce(p_payload -> 'servicesRequested', '[]'::jsonb),
+      nullif(btrim(coalesce(p_payload ->> 'projectRequirements', '')), ''),
+      nullif(btrim(coalesce(p_payload ->> 'scope', '')), ''),
+      nullif(btrim(coalesce(p_payload ->> 'deliverables', '')), ''),
+      v_subtotal, v_discount, v_tax, v_included, v_total, v_fees,
+      v_separate, v_annual, v_monthly,
+      v_maintenance, v_maintenance_note, v_mode,
+      nullif(btrim(coalesce(p_payload ->> 'paymentTermsNote', '')), ''),
+      v_deposit, v_balance,
+      nullif(btrim(coalesce(p_payload ->> 'terms', '')), ''),
+      coalesce(nullif(btrim(coalesce(p_payload ->> 'preparedBy', '')), ''), 'Dan Taoc'),
+      v_status, p_actor, now()
+    )
+    returning * into v_row;
+  else
+    update public.quotations
+       set request_id = v_request_id,
+           quotation_date = coalesce(nullif(btrim(coalesce(p_payload ->> 'quotationDate', '')), '')::date, quotation_date),
+           valid_until = coalesce(nullif(btrim(coalesce(p_payload ->> 'validUntil', '')), '')::date, valid_until),
+           target_completion = coalesce(nullif(btrim(coalesce(p_payload ->> 'targetCompletion', '')), '')::date, target_completion),
+           client_name = coalesce(nullif(btrim(coalesce(p_payload ->> 'clientName', '')), ''), client_name),
+           client_address = coalesce(nullif(btrim(coalesce(p_payload ->> 'clientAddress', '')), ''), client_address),
+           contact_number = coalesce(nullif(btrim(coalesce(p_payload ->> 'contactNumber', '')), ''), contact_number),
+           email = coalesce(nullif(btrim(coalesce(p_payload ->> 'email', '')), ''), email),
+           business_name = coalesce(nullif(btrim(coalesce(p_payload ->> 'businessName', '')), ''), business_name),
+           items = v_items,
+           additional_work = v_additional,
+           services_requested = coalesce(p_payload -> 'servicesRequested', services_requested),
+           project_requirements = coalesce(nullif(btrim(coalesce(p_payload ->> 'projectRequirements', '')), ''), project_requirements),
+           scope = coalesce(nullif(btrim(coalesce(p_payload ->> 'scope', '')), ''), scope),
+           deliverables = coalesce(nullif(btrim(coalesce(p_payload ->> 'deliverables', '')), ''), deliverables),
+           subtotal = v_subtotal,
+           discount = v_discount,
+           tax_amount = v_tax,
+           included_fees_total = v_included,
+           total_contract_price = v_total,
+           optional_fees = v_fees,
+           separate_fees_total = v_separate,
+           separate_annual_total = v_annual,
+           separate_monthly_total = v_monthly,
+           maintenance_mode = v_maintenance,
+           maintenance_note = v_maintenance_note,
+           payment_terms_mode = v_mode,
+           payment_terms_note = coalesce(nullif(btrim(coalesce(p_payload ->> 'paymentTermsNote', '')), ''), payment_terms_note),
+           deposit_amount = v_deposit,
+           balance_amount = v_balance,
+           terms = coalesce(nullif(btrim(coalesce(p_payload ->> 'terms', '')), ''), terms),
+           prepared_by = coalesce(nullif(btrim(coalesce(p_payload ->> 'preparedBy', '')), ''), prepared_by),
+           status = v_status,
+           updated_at = now()
+     where id = v_id
+    returning * into v_row;
+  end if;
+
+  perform public.kmd_audit(
+    p_actor := p_actor,
+    p_action := case when v_number_created then 'QUOTATION_CREATE' else 'QUOTATION_SAVE' end,
+    p_entity := 'quotations',
+    p_entity_id := v_row.id::text,
+    p_previous := case when v_number_created then null else jsonb_build_object(
+      'total', v_previous.total_contract_price, 'status', v_previous.status) end,
+    p_new := jsonb_build_object(
+      'quotationNumber', v_row.quotation_number,
+      'total', v_row.total_contract_price,
+      'separateFees', v_row.separate_fees_total,
+      'status', v_row.status),
+    p_reason := 'Quotation saved by administrator'
+  );
+
+  return jsonb_build_object(
+    'status', 'SAVED',
+    'created', v_number_created,
+    'quotation', to_jsonb(v_row)
+  );
+end $$;
+
+revoke all on function public.kmd_admin_quotation_save(uuid, jsonb) from public, anon, authenticated;
+grant execute on function public.kmd_admin_quotation_save(uuid, jsonb) to service_role;
+
+create temporary table v_actor as select id from public.profiles where username = 'kmdadmin';
+
+-- Remove the rows produced by the earlier partial-save defect, then redo the MLM chain.
+delete from public.quotations where quotation_number in ('KMD-2026-0002', 'KMD-2026-0003', 'KMD-2026-0004');
+
+select 'E1 5% without a basis, issued' as step, public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'requestId', (select id from public.client_requests where client_name = 'Dela Cruz Direct Selling'),
+    'clientName', 'Dela Cruz Direct Selling',
+    'items', jsonb_build_array(jsonb_build_object('description', 'MLM or direct-selling dashboard (promotional)', 'qty', 1, 'amount', 250000)),
+    'optionalFees', jsonb_build_array(
+      jsonb_build_object('kind', 'hosting', 'description', 'Hosting and domain combined', 'amount', 3000, 'per', 'year', 'includedInTotal', false),
+      jsonb_build_object('kind', 'maintenance', 'description', 'Co-partner arrangement — 5% of the entry-pack amount per qualifying entry-pack encoding', 'percent', 5, 'per', 'entry_pack_encoding', 'includedInTotal', false)
+    ),
+    'maintenanceMode', 'co_partner_5_percent',
+    'paymentTermsMode', 'project_50_50',
+    'status', 'issued'
+  )
+)->>'reasonText' as result;
+
+select 'E2 saved as draft' as step, (public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'requestId', (select id from public.client_requests where client_name = 'Dela Cruz Direct Selling'),
+    'clientName', 'Dela Cruz Direct Selling',
+    'items', jsonb_build_array(jsonb_build_object('description', 'MLM or direct-selling dashboard (promotional)', 'qty', 1, 'amount', 250000)),
+    'optionalFees', jsonb_build_array(
+      jsonb_build_object('kind', 'hosting', 'description', 'Hosting and domain combined', 'amount', 3000, 'per', 'year', 'includedInTotal', false),
+      jsonb_build_object('kind', 'maintenance', 'description', 'Co-partner arrangement — 5% of the entry-pack amount per qualifying entry-pack encoding', 'percent', 5, 'per', 'entry_pack_encoding', 'includedInTotal', false)
+    ),
+    'maintenanceMode', 'co_partner_5_percent',
+    'paymentTermsMode', 'project_50_50',
+    'status', 'draft'
+  ))->'quotation' ->> 'quotation_number') as quotation_number;
+
+-- E3: a partial save that records the agreed basis must keep every item and total.
+select 'E3 partial save keeps items' as step, (public.kmd_admin_quotation_save(
+  (select id from v_actor),
+  jsonb_build_object(
+    'quotationId', (select id from public.quotations where client_name = 'Dela Cruz Direct Selling'),
+    'maintenanceNote', 'Qualifying entry-pack encodings only: 5% of the entry-pack amount is due per qualifying encoding once the basis is signed. Non-qualifying or returned encodings are excluded.',
+    'status', 'issued'
+  ))->'quotation' ->> 'total_contract_price') as total_after_partial_save;

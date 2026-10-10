@@ -1,0 +1,103 @@
+-- KMD DIGITAL SOLUTIONS (part 3 of 3): upload bucket, live refresh, published listings.
+-- The `drop policy if exists` lines are idempotency guards for policies on the new bucket;
+-- they remove only policy definitions this same script creates, never business data.
+
+insert into storage.buckets (id, name, public) values
+  ('client-request-files', 'client-request-files', false)
+on conflict (id) do nothing;
+
+drop policy if exists kmd_client_request_files_insert on storage.objects;
+create policy kmd_client_request_files_insert on storage.objects
+  for insert to anon, authenticated with check (bucket_id = 'client-request-files');
+
+drop policy if exists kmd_client_request_files_read on storage.objects;
+create policy kmd_client_request_files_read on storage.objects
+  for select to authenticated using (bucket_id = 'client-request-files' and public.kmd_is_admin(auth.uid()));
+
+do $$
+begin
+  begin
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'client_requests'
+    ) then
+      execute 'alter publication supabase_realtime add table public.client_requests';
+    end if;
+  exception when others then
+    raise notice 'client_requests realtime not enabled: %', sqlerrm;
+  end;
+
+  begin
+    if not exists (
+      select 1 from pg_publication_tables
+       where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'quotations'
+    ) then
+      execute 'alter publication supabase_realtime add table public.quotations';
+    end if;
+  exception when others then
+    raise notice 'quotations realtime not enabled: %', sqlerrm;
+  end;
+end $$;
+
+insert into public.digital_offerings (
+  offering_key, offering_group, label, name, summary, inclusions,
+  price, promo_price, regular_price, annual_fee, annual_fee_label, annual_fee_option,
+  maintenance_options, payment_terms_mode, sort_order, is_active
+) values
+  ('LEARN-A', 'learning_package', 'Package A', 'Digital AI Level 1',
+   'AI prompting, AI creatives, and simple landing page creation',
+   '["AI prompting", "AI creatives", "Simple landing page creation"]'::jsonb,
+   998, 998, null, null, null, 'none', '[]'::jsonb, 'product_default', 1, true),
+
+  ('LEARN-B', 'learning_package', 'Package B', 'Create Landing Pages Without Coding',
+   'Ebook',
+   '["Ebook"]'::jsonb,
+   3800, null, null, null, null, 'none', '[]'::jsonb, 'product_default', 2, true),
+
+  ('LEARN-C', 'learning_package', 'Package C', 'Create Landing Pages and Maximize ChatGPT and Manus',
+   'Live session, certificate, and ebook',
+   '["Live session", "Certificate", "Ebook"]'::jsonb,
+   7800, null, null, null, null, 'none', '[]'::jsonb, 'product_default', 3, true),
+
+  ('LEARN-D', 'learning_package', 'Package D', 'Build an E-commerce Website with Chatbot Automation',
+   'Live session, certificate, and ebook',
+   '["Live session", "Certificate", "Ebook"]'::jsonb,
+   24990, null, null, null, null, 'none', '[]'::jsonb, 'product_default', 4, true),
+
+  ('LEARN-E', 'learning_package', 'Package E', 'Build MLM Systems and Business Operations Dashboards',
+   'Live session, certificate, ebook, and hosting; practical training aimed at producing a running system',
+   '["Live session", "Certificate", "Ebook", "Hosting", "Practical training aimed at producing a running system"]'::jsonb,
+   99000, 99000, 150000, null, null, 'none', '[]'::jsonb, 'product_default', 5, true),
+
+  ('SVC-LANDING', 'service', 'Service 1', 'Landing page', null,
+   '["Landing page design and build"]'::jsonb,
+   1980, null, null, 1500, 'Optional hosting', 'optional', '[]'::jsonb, 'project_50_50', 1, true),
+
+  ('SVC-ECOM-1-2', 'service', 'Service 2', 'E-commerce ready website with 1-2 products and payment options', null,
+   '["E-commerce ready website", "1-2 products", "Payment options"]'::jsonb,
+   5000, null, null, 1500, 'Hosting', 'recurring', '[]'::jsonb, 'project_50_50', 2, true),
+
+  ('SVC-ECOM-5', 'service', 'Service 3', 'E-commerce website with up to 5 products', null,
+   '["E-commerce website", "Up to 5 products"]'::jsonb,
+   7500, null, null, 1500, 'Hosting', 'recurring', '[]'::jsonb, 'project_50_50', 3, true),
+
+  ('SVC-ECOM-10', 'service', 'Service 4', 'E-commerce website with 6-10 products', null,
+   '["E-commerce website", "6-10 products"]'::jsonb,
+   10000, null, null, 1500, 'Domain', 'recurring', '[]'::jsonb, 'project_50_50', 4, true),
+
+  ('SVC-DASHBOARD', 'service', 'Service 5', 'Business operations or office dashboard', null,
+   '["Business operations dashboard", "Office dashboard"]'::jsonb,
+   25000, null, null, 1500, 'Domain', 'recurring', '[]'::jsonb, 'project_50_50', 5, true),
+
+  ('SVC-MLM-DASHBOARD', 'service', 'Service 6', 'MLM or direct-selling dashboard', null,
+   '["MLM dashboard", "Direct-selling dashboard"]'::jsonb,
+   250000, 250000, 500000, 3000, 'Hosting and domain combined', 'recurring',
+   '[{"key": "co_partner_5_percent", "label": "Co-partner arrangement", "detail": "5% of the entry-pack amount for every qualifying entry-pack encoding."},
+     {"key": "client_monthly_50000", "label": "Client maintenance", "detail": "PHP 50,000 per month, billed to the client."}]'::jsonb,
+   'project_50_50', 6, true)
+on conflict (offering_key) do nothing;
+
+select offering_group, offering_key, label, name, price, promo_price, regular_price,
+       annual_fee, annual_fee_label, annual_fee_option, payment_terms_mode, is_active
+  from public.digital_offerings
+ order by offering_group, sort_order;

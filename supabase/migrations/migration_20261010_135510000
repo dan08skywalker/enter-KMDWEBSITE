@@ -1,0 +1,24 @@
+-- Verification: submission, atomic duplicate prevention, and quotation arithmetic.
+select 'first submission' as step, public.kmd_client_request_submit(jsonb_build_object(
+  'clientName', 'Verification Client',
+  'phone', '+63 900 000 0000',
+  'email', 'verify@example.com',
+  'learningGoals', 'Start an AI-assisted business',
+  'itemKeys', jsonb_build_array('LEARN-A', 'LEARN-C')
+))::text as result;
+
+select 'identical resubmission' as step, public.kmd_client_request_submit(jsonb_build_object(
+  'clientName', 'Verification Client',
+  'phone', '09000000000',
+  'email', 'VERIFY@example.com',
+  'learningGoals', 'Start an AI-assisted business',
+  'itemKeys', jsonb_build_array('LEARN-C', 'LEARN-A')
+))::text as result;
+
+select 'different scope allowed' as step, public.kmd_client_request_submit(jsonb_build_object(
+  'clientName', 'Verification Client',
+  'phone', '09000000000',
+  'email', 'verify@example.com',
+  'learningGoals', 'A different goal entirely',
+  'itemKeys', jsonb_build_array('LEARN-A')
+))::text as result;

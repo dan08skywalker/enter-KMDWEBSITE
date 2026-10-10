@@ -23,6 +23,8 @@ import {
   Receipt,
   Settings,
   ShieldCheck,
+  FileSpreadsheet,
+  MonitorSmartphone,
   ShoppingBag,
   Sparkles,
   Truck,
@@ -112,6 +114,14 @@ export const ADMIN_NAV: NavSection[] = [
       { label: "Payment Accounts", path: "/admin/payment-accounts", icon: CreditCard },
       { label: "Bundles", path: "/admin/bundles", icon: Layers },
       { label: "Membership Packages", path: "/admin/packages", icon: GraduationCap },
+    ],
+  },
+  {
+    title: "Digital Solutions",
+    items: [
+      { label: "Client Requests", path: "/admin/digital-requests", icon: FileSpreadsheet },
+      { label: "Quotations", path: "/admin/quotations", icon: FileClock },
+      { label: "Digital Listings", path: "/admin/digital-offerings", icon: MonitorSmartphone },
     ],
   },
   {

@@ -596,6 +596,33 @@ Deno.serve(async (req) => {
           p_assigned_to: body?.assignedTo ? String(body.assignedTo) : null,
         });
 
+      // ---- KMD Digital Solutions: listings, client requests and quotations ----
+
+      case "save_digital_offering":
+        // The published listing copy, prices and recurring fees. The database
+        // validates the figures and records the previous and new values.
+        return run("kmd_admin_digital_offering_save", {
+          p_actor: actorId,
+          p_payload: body?.payload ?? {},
+        });
+
+      case "update_client_request":
+        // Queue movement only: the client's submitted details are never rewritten.
+        return run("kmd_admin_client_request_update", {
+          p_actor: actorId,
+          p_request_id: String(body?.requestId ?? ""),
+          p_status: body?.status ? String(body.status) : null,
+          p_notes: body?.notes ? String(body.notes) : null,
+        });
+
+      case "save_quotation":
+        // Every total is recalculated inside the database function from the line
+        // items, so the saved record cannot disagree with what is printed.
+        return run("kmd_admin_quotation_save", {
+          p_actor: actorId,
+          p_payload: body?.payload ?? {},
+        });
+
       case "readiness":
         return run("kmd_readiness_report", {});
 
