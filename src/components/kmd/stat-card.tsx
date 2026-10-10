@@ -52,7 +52,11 @@ export function StatCard({
           ) : (
             <p className={cn("kmd-figure mt-2 truncate", styles.value)}>{value}</p>
           )}
-          {hint ? <p className="mt-1 text-xs text-muted-foreground">{hint}</p> : null}
+          {loading ? (
+            <Skeleton className="mt-2 h-3 w-24" />
+          ) : hint ? (
+            <p className="mt-1 text-xs text-muted-foreground">{hint}</p>
+          ) : null}
         </div>
         {Icon ? (
           <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg", styles.icon)}>

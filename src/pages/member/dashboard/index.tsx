@@ -253,6 +253,29 @@ export default function MemberDashboard() {
         }
       />
 
+      {/*
+        Loading, failure and a genuine zero are three different things: the cards below
+        show skeletons while the figures are in flight, this notice appears only when a
+        read actually failed, and a real zero then renders as a zero.
+      */}
+      {ledger.error ? (
+        <div className="kmd-panel flex flex-wrap items-center justify-between gap-3 border-destructive/40 bg-destructive/5 p-4">
+          <div className="flex items-start gap-3">
+            <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-destructive" />
+            <div>
+              <p className="text-sm font-semibold text-destructive">Your balances could not be read</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Nothing has been lost — this is a failed request, not a zero balance. The figures below
+                will fill in once the connection recovers.
+              </p>
+            </div>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => void ledger.reload()}>
+            Try again
+          </Button>
+        </div>
+      ) : null}
+
       {profile && (profile.account_status === "suspended" || profile.account_status === "inactive") ? (
         <div className="kmd-panel border-destructive/40 bg-destructive/5 p-4">
           <div className="flex items-start gap-3">

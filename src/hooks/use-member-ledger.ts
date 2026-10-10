@@ -6,6 +6,8 @@ import type { LoyaltyLedgerRow, PointLedgerRow, WalletLedgerRow } from "@/lib/km
 
 export interface MemberLedger {
   loading: boolean;
+  /** Set when the balances could not be read, so "zero" is never confused with "failed". */
+  error: string | null;
   /** Net lifetime unilevel after posted administrator adjustments (server-derived). */
   lifetimeUnilevelNet: number;
   /** Net lifetime loyalty credits after posted administrator debit adjustments. */
@@ -31,6 +33,7 @@ export interface MemberLedger {
 export function useMemberLedger(): MemberLedger {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [pointRows, setPointRows] = useState<PointLedgerRow[]>([]);
   const [loyaltyRows, setLoyaltyRows] = useState<LoyaltyLedgerRow[]>([]);
   const [walletRows, setWalletRows] = useState<WalletLedgerRow[]>([]);
@@ -70,6 +73,10 @@ export function useMemberLedger(): MemberLedger {
       supabase.rpc("kmd_member_points_summary", { p_member: user.id }),
     ]);
 
+    // A failed read is reported, not rendered as a zero balance.
+    const failed = points.error ?? loyalty.error ?? wallet.error ?? summary.error;
+    setError(failed ? failed.message : null);
+    if (summary.error) console.error("Could not read the saved balance:", summary.error.message);
     if (points.error) console.error("Could not load point ledger:", points.error.message);
     if (loyalty.error) console.error("Could not load loyalty ledger:", loyalty.error.message);
     if (wallet.error) console.error("Could not load wallet ledger:", wallet.error.message);
@@ -144,6 +151,7 @@ export function useMemberLedger(): MemberLedger {
 
   return {
     loading,
+    error,
     pointRows,
     loyaltyRows,
     walletRows,
