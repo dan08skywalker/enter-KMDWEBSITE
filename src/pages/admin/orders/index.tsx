@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Package } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeFunction } from "@/lib/kmd/invoke";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { PageHeader } from "@/components/kmd/page-header";
 import { ExportButton } from "@/components/kmd/export-button";
 import { StatCard } from "@/components/kmd/stat-card";
@@ -36,49 +37,54 @@ export default function AdminOrders() {
     historicalConfigurationDifferences: unknown[];
   } | null>(null);
 
-  useEffect(() => {
-    let active = true;
-    void (async () => {
-      setLoading(true);
-      let query = supabase
-        .from("orders")
-        .select("*, order_items(*)")
-        .order("created_at", { ascending: false })
-        .limit(300);
-      if (!includeTest) query = query.eq("is_test", false);
+  const load = useCallback(async () => {
+    setLoading(true);
+    let query = supabase
+      .from("orders")
+      .select("*, order_items(*)")
+      .order("created_at", { ascending: false })
+      .limit(300);
+    if (!includeTest) query = query.eq("is_test", false);
 
-      const { data, error } = await query;
-      if (error) {
-        console.error("Could not load orders:", error.message);
-        setLoading(false);
-        return;
-      }
-      if (active) {
-        const rows = (data ?? []) as unknown as OrderRow[];
-        setOrders(rows);
-        setLoading(false);
+    const { data, error } = await query;
+    if (error) {
+      console.error("Could not load orders:", error.message);
+      setLoading(false);
+      return;
+    }
 
-        // The reward status comes from the ledgers, the same source the approval
-        // screen reads, so the two can never disagree.
-        if (rows.length > 0) {
-          const outcome = await invokeFunction<{ result?: Record<string, { status?: string }> }>(
-            "admin-actions",
-            { action: "reward_status", orderIds: rows.map((row) => row.id) },
-          );
-          if (outcome.ok && active) {
-            setRewardStatus(
-              Object.fromEntries(
-                Object.entries(outcome.data?.result ?? {}).map(([id, entry]) => [id, entry.status ?? ""]),
-              ),
-            );
-          }
-        }
+    const rows = (data ?? []) as unknown as OrderRow[];
+    setOrders(rows);
+    setLoading(false);
+
+    // The saved reward status comes from the ledgers — the same source the approval
+    // screen reads — so the two tabs can never disagree.
+    if (rows.length > 0) {
+      const outcome = await invokeFunction<{ result?: Record<string, { status?: string }> }>(
+        "admin-actions",
+        { action: "reward_status", orderIds: rows.map((row) => row.id) },
+      );
+      if (outcome.ok) {
+        setRewardStatus(
+          Object.fromEntries(
+            Object.entries(outcome.data?.result ?? {}).map(([id, entry]) => [id, entry.status ?? ""]),
+          ),
+        );
       }
-    })();
-    return () => {
-      active = false;
-    };
+    }
   }, [includeTest]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  // Confirming a payment in the approval tab writes the order, its ledgers and its
+  // status in one transaction; this subscription is what makes this tab show
+  // "Rewards processed" immediately, with no second confirmation and no reload.
+  useRealtimeRefresh(
+    ["orders", "point_ledger", "loyalty_credit_ledger", "payment_proofs"],
+    () => void load(),
+  );
 
   // Read once: duplicates, missing legacy labels and genuinely incomplete orders.
   useEffect(() => {
@@ -166,13 +172,25 @@ export default function AdminOrders() {
         // The authoritative status, derived from the reward ledgers, so this column
         // cannot disagree with the approval screen or with a missing legacy flag.
         const derived = rewardStatus[row.id];
-        if (derived === "partial") return <StatusBadge label="Incomplete" tone="warning" />;
+        if (derived === "partial") {
+          return <StatusBadge label="Incomplete — retry" tone="warning" />;
+        }
         const processed = derived === "complete" || derived === "historical" || row.rewards_processed;
         return (
-          <StatusBadge
-            label={processed ? "Processed" : "Not processed"}
-            tone={processed ? "success" : "warning"}
-          />
+          <span
+            title={
+              derived === "historical"
+                ? "Rewards were fully credited when this order was processed; the reward matrix has changed since."
+                : processed
+                  ? "Every reward this order owes has been credited."
+                  : "No rewards have been credited for this order yet."
+            }
+          >
+            <StatusBadge
+              label={processed ? "Rewards processed" : "Rewards not processed"}
+              tone={processed ? "success" : "warning"}
+            />
+          </span>
         );
       },
     },

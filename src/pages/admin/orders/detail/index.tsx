@@ -4,6 +4,7 @@ import { Activity, BadgeCheck, Loader2, RefreshCw, Truck, Undo2, Wallet, XCircle
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeFunction } from "@/lib/kmd/invoke";
+import { useRealtimeRefresh } from "@/hooks/use-realtime-refresh";
 import { PageHeader } from "@/components/kmd/page-header";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -110,6 +111,10 @@ export default function AdminOrderDetail() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // A payment confirmed in the approval tab updates this order, its ledgers and its
+  // status together; this keeps the detail view in step without a manual refresh.
+  useRealtimeRefresh(["orders", "point_ledger", "loyalty_credit_ledger"], () => void load());
 
   const runAction = async (action: string, extra: Record<string, unknown>, successMessage: string) => {
     const outcome = await invokeFunction<{ ok?: boolean; result?: EngineRunResult & Record<string, unknown> }>(

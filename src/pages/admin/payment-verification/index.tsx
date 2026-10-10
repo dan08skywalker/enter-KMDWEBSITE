@@ -54,6 +54,8 @@ export default function AdminPaymentApprovals() {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<ApprovalRow[]>([]);
   const [capped, setCapped] = useState(false);
+  /** order id -> the same saved reward status the Orders tab reads. */
+  const [rewardStatus, setRewardStatus] = useState<Record<string, string>>({});
   const [tab, setTab] = useState<Tab>("pending");
   const [search, setSearch] = useState("");
   const [fromDate, setFromDate] = useState("");
@@ -107,6 +109,21 @@ export default function AdminPaymentApprovals() {
       supabase.from("products").select("id, sku, name, product_type, is_active"),
       supabase.from("membership_packages").select("id, package_code, name, product_id, is_active"),
     ]);
+
+    // The saved reward status, from the same backend source the Orders tab uses.
+    if (orderIds.length > 0) {
+      const statusOutcome = await invokeFunction<{ result?: Record<string, { status?: string }> }>(
+        "admin-actions",
+        { action: "reward_status", orderIds },
+      );
+      if (statusOutcome.ok) {
+        setRewardStatus(
+          Object.fromEntries(
+            Object.entries(statusOutcome.data?.result ?? {}).map(([id, entry]) => [id, entry.status ?? ""]),
+          ),
+        );
+      }
+    }
 
     for (const result of [itemResult, proofResult, buyerResult, productResult, packageResult]) {
       if ("error" in result && result.error) {
@@ -320,6 +337,20 @@ export default function AdminPaymentApprovals() {
         return (
           <div className="flex flex-col gap-1">
             <StatusBadge label={descriptor.label} tone={descriptor.tone} />
+            {(() => {
+              const derived = rewardStatus[row.order.id];
+              if (!derived) return null;
+              if (derived === "partial") {
+                return <StatusBadge label="Rewards incomplete — retry" tone="warning" />;
+              }
+              const processed = derived === "complete" || derived === "historical";
+              return (
+                <StatusBadge
+                  label={processed ? "Rewards processed" : "Rewards not processed"}
+                  tone={processed ? "success" : "warning"}
+                />
+              );
+            })()}
             {row.order.is_test ? <StatusBadge label="Test" tone="platinum" /> : null}
           </div>
         );

@@ -1,0 +1,3 @@
+select public.kmd_create_order((select id from public.products where sku='KMD-DOKUDAMI-001'), 1, (select id from public.profiles where username='testbuyer')) as placed;
+
+select o.order_number, public.kmd_order_reward_status(o.id)->>'status' as status_before_confirmation, public.kmd_order_reward_status(o.id)->>'rewardFlag' as flag, (select count(*) from public.point_ledger l where l.order_id = o.id) as reward_rows from public.orders o where o.order_number = (select max(order_number) from public.orders where buyer_profile_id = (select id from public.profiles where username='testbuyer'))

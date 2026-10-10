@@ -1,0 +1,99 @@
+-- An order that is not confirmed yet owes nothing: 'not triggered' must not be
+-- reported as an incomplete/failed run. Only a confirmed order can be partial.
+create or replace function public.kmd_order_reward_status(p_order_id uuid)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_max int := 5;
+  v_expected jsonb;
+  v_missing jsonb;
+  v_levels jsonb;
+  v_loyalty_expected boolean := false;
+  v_loyalty_paid boolean := false;
+  v_complete boolean;
+  v_owed int;
+begin
+  select * into v_order from public.orders where id = p_order_id;
+  if not found then
+    return jsonb_build_object('found', false);
+  end if;
+
+  select coalesce((value #>> '{}')::int, 5) into v_max
+    from public.system_settings where key = 'max_unilevel_levels';
+  v_max := coalesce(v_max, 5);
+
+  with matrix as (
+    select distinct lvl.level
+      from public.order_items oi
+      join public.reward_configurations rc on rc.product_id = oi.product_id and rc.is_active
+      cross join lateral (values
+        (1, rc.level1_points), (2, rc.level2_points), (3, rc.level3_points),
+        (4, rc.level4_points), (5, rc.level5_points)) as lvl(level, points)
+     where oi.order_id = p_order_id
+       and coalesce(lvl.points, 0) > 0
+       and lvl.level <= v_max
+       and v_order.buyer_profile_id is not null
+       and exists (select 1 from public.sponsor_relationships sr
+                     join public.profiles a on a.id = sr.ancestor_id
+                    where sr.descendant_id = v_order.buyer_profile_id
+                      and sr.level = lvl.level
+                      and a.account_status = 'active')
+  ), paid as (
+    select distinct l.unilevel_level as level
+      from public.point_ledger l
+     where l.order_id = p_order_id and l.transaction_type = 'UNILEVEL_BONUS' and l.status = 'posted'
+  )
+  select coalesce(jsonb_agg(distinct m.level order by m.level), '[]'::jsonb),
+         coalesce(jsonb_agg(distinct m.level order by m.level) filter (where p.level is null), '[]'::jsonb),
+         coalesce(jsonb_agg(distinct p.level order by p.level) filter (where p.level is not null), '[]'::jsonb)
+    into v_expected, v_missing, v_levels
+    from matrix m
+    left join paid p on p.level = m.level;
+
+  select exists (
+    select 1 from public.order_items oi
+      join public.reward_configurations rc on rc.product_id = oi.product_id and rc.is_active
+     where oi.order_id = p_order_id and coalesce(rc.loyalty_credit, 0) > 0)
+    and v_order.buyer_profile_id is not null
+    into v_loyalty_expected;
+
+  select exists (
+    select 1 from public.loyalty_credit_ledger c
+     where c.order_id = p_order_id and c.direction = 'CREDIT' and c.status = 'posted')
+    into v_loyalty_paid;
+
+  v_owed := jsonb_array_length(v_expected);
+  v_complete := jsonb_array_length(v_missing) = 0 and (not v_loyalty_expected or v_loyalty_paid);
+
+  return jsonb_build_object(
+    'found', true,
+    'orderId', v_order.id,
+    'orderNumber', v_order.order_number,
+    'orderStatus', v_order.status,
+    'customerType', v_order.customer_type,
+    'rewardFlag', v_order.rewards_processed,
+    'expectedLevels', v_expected,
+    'paidLevels', v_levels,
+    'missingLevels', v_missing,
+    'loyaltyExpected', v_loyalty_expected,
+    'loyaltyPaid', v_loyalty_paid,
+    'complete', v_complete,
+    -- complete         : every reward this order owes has been credited
+    -- not_triggered    : not confirmed yet, so no reward is due
+    -- partial          : confirmed, never flagged, and still owed a reward (safe retry)
+    -- historical       : flagged, but today's matrix would pay levels it never owed
+    'status', case
+      when v_complete then 'complete'
+      when v_order.status <> 'confirmed' and not v_order.rewards_processed then 'not_triggered'
+      when not v_order.rewards_processed and (v_owed > 0 or v_loyalty_expected) then 'partial'
+      when v_order.rewards_processed then 'historical'
+      else 'none' end);
+end $$;
+
+revoke all on function public.kmd_order_reward_status(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_order_reward_status(uuid) to service_role;
+
+-- Now confirm that same pending order, exactly as the Payment Approval tab does.
+select public.kmd_confirm_payment((select id from public.orders where order_number = 'KMD-ORDER-001133'),
+  (select id from public.profiles where username='kmdadmin'), 'payment_confirmed')::text as confirmation;
