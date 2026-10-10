@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import { useTranslation } from "react-i18next";
 import { LayoutGrid, Search, SlidersHorizontal } from "lucide-react";
 import { PageHero, Section, SiteShell } from "@/components/site/site-shell";
@@ -15,9 +15,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { EmptyState } from "@/components/kmd/empty-state";
-import { ArrowRight, MonitorSmartphone } from "lucide-react";
+import { DigitalSolutionsCard } from "@/components/digital/digital-solutions-card";
 import { useStore } from "@/contexts/store-context";
 import { toNumber } from "@/lib/kmd/format";
+import { DIGITAL_CATALOGUE_CATEGORY } from "@/lib/digital/types";
 
 type SortKey = "featured" | "price-asc" | "price-desc" | "name";
 
@@ -77,6 +78,11 @@ export default function ShopPage() {
     return sorted;
   }, [products, activeCategory, query, sort, maxPrice]);
 
+  const searchActive = query.trim().length > 0 || maxPrice.trim().length > 0;
+  const inDigitalCategory = activeCategory === DIGITAL_CATALOGUE_CATEGORY;
+  const showCatalogueCard =
+    !searchActive && (activeCategory === "all" || inDigitalCategory);
+
   const applyCategory = (category: string) => {
     const next = new URLSearchParams(params);
     if (category === "all") next.delete("category");
@@ -91,30 +97,6 @@ export default function ShopPage() {
         title={t("shop.title")}
         intro={t("shop.intro")}
       />
-
-      <Section className="pb-0">
-        <div className="kmd-panel flex flex-wrap items-center justify-between gap-4 p-5">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-              <MonitorSmartphone className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="text-sm font-semibold">KMD Digital Solutions</p>
-              <p className="mt-1 max-w-2xl text-[11px] leading-relaxed text-muted-foreground">
-                Digital AI learning packages and client services — landing pages, e-commerce websites and
-                business or MLM dashboards. Open any listing to send a request; a request asks us for a
-                written quotation and takes no payment.
-              </p>
-            </div>
-          </div>
-          <Button asChild variant="brand">
-            <Link to="/digital-solutions">
-              <ArrowRight className="h-4 w-4" />
-              View digital packages &amp; services
-            </Link>
-          </Button>
-        </div>
-      </Section>
 
       <Section>
         <div className="kmd-panel grid gap-4 p-4 lg:grid-cols-[1.4fr_1fr_1fr]">
@@ -190,16 +172,18 @@ export default function ShopPage() {
               <Skeleton key={row} className="h-80 w-full" />
             ))}
           </div>
-        ) : visible.length === 0 ? (
+        ) : visible.length === 0 && !showCatalogueCard ? (
           <EmptyState
             title={t("shop.empty.title")}
             description={t("shop.empty.description")}
           />
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {showCatalogueCard && inDigitalCategory ? <DigitalSolutionsCard /> : null}
             {visible.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
+            {showCatalogueCard && !inDigitalCategory ? <DigitalSolutionsCard /> : null}
           </div>
         )}
       </Section>

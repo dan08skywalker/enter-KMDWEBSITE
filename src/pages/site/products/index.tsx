@@ -53,22 +53,12 @@ export default function ProductsPage() {
                         <p className="text-xs text-muted-foreground">{category.blurb}</p>
                       </div>
                     </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Button asChild variant="ghost" size="sm" className="text-accent">
-                        <Link to={`/shop?category=${encodeURIComponent(category.name)}`}>
-                          Shop {category.name}
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </Link>
-                      </Button>
-                      {category.name === "Digital Services" ? (
-                        <Button asChild variant="outline" size="sm">
-                          <Link to="/digital-solutions">
-                            Digital packages &amp; services
-                            <ArrowRight className="h-3.5 w-3.5" />
-                          </Link>
-                        </Button>
-                      ) : null}
-                    </div>
+                    <Button asChild variant="ghost" size="sm" className="text-accent">
+                      <Link to={`/shop?category=${encodeURIComponent(category.name)}`}>
+                        Shop {category.name}
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </Link>
+                    </Button>
                   </div>
 
                   <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

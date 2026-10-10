@@ -22,22 +22,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useDigitalOfferings } from "@/hooks/use-digital-offerings";
 import { useSiteText } from "@/contexts/store-context";
 import { formatPeso } from "@/lib/kmd/format";
-import type { DigitalOffering } from "@/lib/digital/types";
+import { offeringFeeText, type DigitalOffering } from "@/lib/digital/types";
 
 const LEARNING_INTRO_FALLBACK =
-  "Discover practical ways to turn your ideas into digital projects";
-const SERVICES_INTRO_FALLBACK = "Bring your business ideas to life with KMD Digital Solutions";
-
-/** Exact wording for the recurring charge: only what the listing itself states. */
-function annualFeeText(offering: DigitalOffering): string | null {
-  if (offering.annualFee === null || offering.annualFeeOption === "none" || !offering.annualFeeLabel) {
-    return null;
-  }
-  return `${offering.annualFeeLabel}: ${formatPeso(offering.annualFee)}/year`;
-}
+  "Learn to create landing pages without coding, build e-commerce websites, automate customer conversations, and develop MLM systems and business dashboards through practical ebooks and training.";
+const SERVICES_INTRO_FALLBACK =
+  "Tell us what you want to build. KMD Digital Solutions creates landing pages, e-commerce websites, business dashboards, and MLM systems tailored to your business needs.";
 
 function OfferingCard({ offering, index }: { offering: DigitalOffering; index: number }) {
-  const feeText = annualFeeText(offering);
+  const feeText = offeringFeeText(offering);
   const requestHref = `/digital-solutions/request?item=${encodeURIComponent(offering.offeringKey)}`;
 
   return (

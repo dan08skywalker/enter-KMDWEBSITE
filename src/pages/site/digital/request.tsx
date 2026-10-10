@@ -33,7 +33,7 @@ import { useDigitalOfferings } from "@/hooks/use-digital-offerings";
 import { RequestAttachmentPicker, useRequestAttachments } from "@/components/digital/request-attachments";
 import { supabase } from "@/integrations/supabase/client";
 import { formatPeso } from "@/lib/kmd/format";
-import type { DigitalOffering } from "@/lib/digital/types";
+import { offeringFeeText, type DigitalOffering } from "@/lib/digital/types";
 
 interface SubmitResult {
   status: "CREATED" | "DUPLICATE" | "FAILED";
@@ -605,8 +605,7 @@ export default function DigitalRequestPage() {
                     <ul className="space-y-1">
                       {annualFees.map((offering) => (
                         <li key={offering.id} className="text-[11px] text-muted-foreground">
-                          {offering.annualFeeLabel}: {formatPeso(offering.annualFee)}/year — {offering.name}
-                          {offering.annualFeeOption === "optional" ? " (optional)" : ""}
+                          {offeringFeeText(offering)} — {offering.name}
                         </li>
                       ))}
                     </ul>
@@ -675,10 +674,7 @@ function OfferingChoice({
   checked: boolean;
   onToggle: (offering: DigitalOffering, checked: boolean) => void;
 }) {
-  const fee =
-    offering.annualFee !== null && offering.annualFeeOption !== "none" && offering.annualFeeLabel
-      ? `${offering.annualFeeLabel}: ${formatPeso(offering.annualFee)}/year`
-      : null;
+  const fee = offeringFeeText(offering);
 
   return (
     <label

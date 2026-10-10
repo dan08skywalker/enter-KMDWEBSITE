@@ -1,0 +1,20 @@
+-- The two published section introductions for the KMD Digital Solutions page, using
+-- the copy supplied. These are two NEW site.* keys in the existing settings store;
+-- no other setting, product, request or quotation is read or changed.
+insert into public.system_settings (key, value, description, updated_at) values
+  ('site.digital.learning_intro',
+   to_jsonb('Learn to create landing pages without coding, build e-commerce websites, automate customer conversations, and develop MLM systems and business dashboards through practical ebooks and training.'::text),
+   'KMD Digital Solutions — introduction above the Digital Products and AI Learning Packages listings.',
+   now()),
+  ('site.digital.services_intro',
+   to_jsonb('Tell us what you want to build. KMD Digital Solutions creates landing pages, e-commerce websites, business dashboards, and MLM systems tailored to your business needs.'::text),
+   'KMD Digital Solutions — introduction above the Digital Services for Clients listings.',
+   now())
+on conflict (key) do update
+   set value = excluded.value,
+       description = excluded.description,
+       updated_at = now();
+
+select key, value, updated_at from public.system_settings
+ where key in ('site.digital.learning_intro', 'site.digital.services_intro')
+ order by key;

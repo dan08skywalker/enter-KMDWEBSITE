@@ -7,6 +7,8 @@
  * out of Unilevel earnings and loyalty credits.
  */
 
+import { formatPeso } from "@/lib/kmd/format";
+
 export type OfferingGroup = "learning_package" | "service";
 export type FeeOption = "none" | "optional" | "recurring";
 export type PaymentTermsMode = "product_default" | "project_50_50";
@@ -204,6 +206,35 @@ export const PAYMENT_TERMS_LABEL: Record<PaymentTermsMode, string> = {
   product_default: "Product payment terms",
   project_50_50: "50% on signing, 50% after completion",
 };
+
+/* ------------------------------------------------------------ presentation -- */
+
+/** The shop category the digital catalogue card and its listings live under. */
+export const DIGITAL_CATALOGUE_CATEGORY = "Digital Services";
+
+/** The catalogue card that opens KMD Digital Solutions from the shop. */
+export const DIGITAL_SOLUTIONS_CARD = {
+  label: "KMD Digital Solutions",
+  image: "/products/digital-services.png",
+  blurb: "Digital AI learning packages and client services for your business.",
+} as const;
+
+/**
+ * How a listing publishes its yearly charge, in the listing's own words:
+ * "Optional hosting: ₱1,500.00/year" where the charge is optional, and
+ * "Hosting: additional ₱1,500.00/year" where it is billed on top of the project
+ * price. Only the label stored against the listing is ever shown, so hosting and
+ * domain are never implied together when just one of them applies.
+ */
+export function offeringFeeText(
+  offering: Pick<DigitalOffering, "annualFee" | "annualFeeLabel" | "annualFeeOption">,
+): string | null {
+  if (offering.annualFee === null || offering.annualFeeOption === "none" || !offering.annualFeeLabel) {
+    return null;
+  }
+  const prefix = offering.annualFeeOption === "optional" ? "" : "additional ";
+  return `${offering.annualFeeLabel}: ${prefix}${formatPeso(offering.annualFee)}/year`;
+}
 
 /* ------------------------------------------------------------------ mappers */
 
