@@ -1,0 +1,17 @@
+-- The attached VIP Signature artwork becomes the package listing image, stored the
+-- same way as the other membership bundles: image_url plus the same artwork as the
+-- first gallery entry.
+update public.products
+   set image_url = 'https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/e1d72b17.jpeg',
+       gallery = jsonb_build_array('https://cdn.enter.pro/visual_resources/100617780/eadf183afe7f40ee8b1303e459f216e7/e1d72b17.jpeg'),
+       updated_at = now()
+ where sku = 'KMD-VIP-SIGNATURE' and product_code = 'KMD-PROD-0006';
+
+select mp.package_code, mp.name, mp.tier, p.sku, p.selling_price, p.image_url,
+       p.short_description, (p.gallery->>0) as gallery_first,
+       rc.level1_points as l1, rc.level2_points as l2, rc.loyalty_credit as loyalty,
+       (select cap_amount from public.level1_caps c where c.membership_package_id = mp.id) as own_level1_cap
+  from public.membership_packages mp
+  join public.products p on p.id = mp.product_id
+  left join public.reward_configurations rc on rc.product_id = p.id
+ where mp.package_code = 'KMD-PKG-VIP-SIGNATURE';
