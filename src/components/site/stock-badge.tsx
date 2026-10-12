@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { AlertTriangle, CheckCircle2, Infinity as InfinityIcon, PackageX } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -20,6 +21,7 @@ export function StockBadge({
   isDigital = false,
   className,
 }: StockBadgeProps) {
+  const { t } = useTranslation();
   const base =
     "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold";
 
@@ -27,7 +29,7 @@ export function StockBadge({
     return (
       <span className={cn(base, "border-primary/25 bg-secondary text-secondary-foreground", className)}>
         <InfinityIcon className="h-3.5 w-3.5" />
-        Delivered digitally
+        {t("stock.deliveredDigitally")}
       </span>
     );
   }
@@ -36,7 +38,7 @@ export function StockBadge({
     return (
       <span className={cn(base, "border-primary/25 bg-secondary text-secondary-foreground", className)}>
         <CheckCircle2 className="h-3.5 w-3.5" />
-        Available
+        {t("stock.available")}
       </span>
     );
   }
@@ -45,7 +47,7 @@ export function StockBadge({
     return (
       <span className={cn(base, "border-destructive/30 bg-destructive/10 text-destructive", className)}>
         <PackageX className="h-3.5 w-3.5" />
-        Out of stock
+        {t("common.outOfStock")}
       </span>
     );
   }
@@ -54,7 +56,7 @@ export function StockBadge({
     return (
       <span className={cn(base, "border-warning/35 bg-warning/12 text-warning", className)}>
         <AlertTriangle className="h-3.5 w-3.5" />
-        Only {availableQuantity} left
+        {t("stock.onlyLeft", { count: availableQuantity })}
       </span>
     );
   }
@@ -62,7 +64,7 @@ export function StockBadge({
   return (
     <span className={cn(base, "border-primary/25 bg-secondary text-secondary-foreground", className)}>
       <CheckCircle2 className="h-3.5 w-3.5" />
-      In stock · {availableQuantity} available
+      {t("stock.inStockAvailable", { count: availableQuantity })}
     </span>
   );
 }

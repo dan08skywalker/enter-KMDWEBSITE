@@ -24,15 +24,10 @@ import { StatusBadge } from "@/components/kmd/status-badge";
 import { useStore } from "@/contexts/store-context";
 import { packageTier } from "@/lib/kmd/labels";
 import {
-  CLOSET_FEATURES,
   COMPANY,
-  DIGITAL_SERVICES,
-  DOKUDAMI_FEATURES,
   DOKUDAMI_REVIEW_URL,
   FAQS,
   HOMEPAGE_CATEGORIES,
-  LED_BULB_FEATURES,
-  POWERPILL_BENEFITS,
 } from "@/lib/site/content";
 
 const CATEGORY_ICONS: Record<string, typeof HeartPulse> = {
@@ -43,11 +38,28 @@ const CATEGORY_ICONS: Record<string, typeof HeartPulse> = {
   "Digital Services": MonitorSmartphone,
 };
 
-const SPOTLIGHT_VALUES = [
-  { level: "Level 1", detail: "The direct sponsor of the buyer earns the configured Level 1 value." },
-  { level: "Level 2", detail: "The sponsor's own sponsor earns the configured Level 2 value." },
-  { level: "Levels 3–5", detail: "Traced automatically from the registered sponsor chain." },
-];
+/**
+ * The membership levels shown beside the plan. The wording is translated, so the
+ * rows are built from keys inside the component rather than from a fixed list.
+ */
+
+/** Category blurbs are published copy; the category name itself stays as stored. */
+function categoryBlurb(slug: string, t: (key: string) => string): string {
+  switch (slug) {
+    case "wellness":
+      return t("home.category.wellness.blurb");
+    case "fuel-additive":
+      return t("home.category.fuel.blurb");
+    case "home-lighting":
+      return t("home.category.homeLighting.blurb");
+    case "apparel":
+      return t("home.category.apparel.blurb");
+    case "digital-services":
+      return t("home.category.digitalServices.blurb");
+    default:
+      return "";
+  }
+}
 
 export default function HomePage() {
   const { t } = useTranslation();
@@ -79,7 +91,7 @@ export default function HomePage() {
             </h1>
 
             <p className="mt-5 max-w-xl text-sm leading-relaxed text-white/80 sm:text-base">
-              {COMPANY.intro}
+              {t("home.hero.intro")}
             </p>
 
             <div className="mt-8 flex flex-wrap gap-3">
@@ -161,8 +173,8 @@ export default function HomePage() {
 
       {/* ---------------- brand banner ---------------- */}
       <Section
-        title="We distribute problem-solving products"
-        intro="Smart solutions for a better tomorrow — selected and backed by GreenChoyce."
+        title={t("home.brand.title")}
+        intro={t("home.brand.intro")}
       >
         <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
           <div className="overflow-hidden rounded-2xl border bg-card">
@@ -177,10 +189,10 @@ export default function HomePage() {
           <div className="flex flex-col gap-4">
             <BrandTile />
             <div className="kmd-panel p-5">
-              <p className="kmd-eyebrow text-accent">Our mission</p>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{COMPANY.mission}</p>
-              <p className="kmd-eyebrow mt-4 text-accent">Our vision</p>
-              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{COMPANY.vision}</p>
+              <p className="kmd-eyebrow text-accent">{t("home.brand.missionLabel")}</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t("home.brand.mission")}</p>
+              <p className="kmd-eyebrow mt-4 text-accent">{t("home.brand.visionLabel")}</p>
+              <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t("home.brand.vision")}</p>
             </div>
           </div>
         </div>
@@ -236,7 +248,9 @@ export default function HomePage() {
                   <Icon className="h-5 w-5" />
                 </span>
                 <p className="mt-4 text-sm font-semibold">{category.name}</p>
-                <p className="mt-1 flex-1 text-xs text-muted-foreground">{category.blurb}</p>
+                <p className="mt-1 flex-1 text-xs text-muted-foreground">
+                  {categoryBlurb(category.slug, t) || category.blurb}
+                </p>
                 <span className="mt-3 inline-flex items-center gap-1 text-[11px] font-semibold text-accent">
                   {t("home.categories.browse")}
                   <ArrowRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
@@ -262,17 +276,21 @@ export default function HomePage() {
             </div>
 
             <div>
-              <p className="kmd-eyebrow text-accent">EGC Dokudami Capsules</p>
+              <p className="kmd-eyebrow text-accent">{t("home.spotlight.dokudami.eyebrow")}</p>
               <h2 className="mt-2 text-2xl font-bold tracking-tight">
-                Discover the natural power of Dokudami
+                {t("home.spotlight.dokudami.title")}
               </h2>
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                {dokudami?.description ??
-                  "Everyday wellness support in capsule form, made with Houttuynia cordata (dokudami)."}
+                {t("home.spotlight.dokudami.intro")}
               </p>
 
               <ul className="mt-5 space-y-2">
-                {DOKUDAMI_FEATURES.map((feature) => (
+                {[
+                  t("home.feature.dokudamiBotanical"),
+                  t("home.feature.dokudamiCompounds"),
+                  t("home.feature.dokudamiPlantBased"),
+                  t("home.feature.dokudamiNoAdditives"),
+                ].map((feature) => (
                   <li key={feature} className="flex items-start gap-2 text-xs text-foreground/85">
                     <Droplets className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                     {feature}
@@ -297,7 +315,7 @@ export default function HomePage() {
                     />
                     <Button asChild variant="brand">
                       <Link to={dokudami.slug ? `/shop/${dokudami.slug}` : "/shop"}>
-                        Shop this product
+                        {t("home.bestSellers.shopThis")}
                       </Link>
                     </Button>
                   </div>
@@ -307,7 +325,7 @@ export default function HomePage() {
               <div className="mt-6 rounded-xl border border-primary/20 bg-secondary/60 p-4">
                 <p className="flex items-center gap-2 text-xs font-semibold">
                   <BookOpen className="h-3.5 w-3.5 text-primary" />
-                  Read the science for yourself
+                  {t("home.spotlight.science.title")}
                 </p>
                 <a
                   href={DOKUDAMI_REVIEW_URL}
@@ -318,15 +336,12 @@ export default function HomePage() {
                   Pharmacological Effects of Houttuynia cordata: A Comprehensive Review
                 </a>
                 <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
-                  This publication summarises existing scientific research on Houttuynia cordata and its
-                  naturally occurring compounds. It is educational reading and is not evidence that any
-                  supplement can diagnose, treat, cure or prevent a disease.
+                  {t("home.spotlight.science.note")}
                 </p>
               </div>
 
               <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
-                {dokudami?.disclaimer ??
-                  "This product is a food supplement and is not intended to diagnose, treat, cure or prevent any disease."}
+                {dokudami?.disclaimer ?? t("home.spotlight.dokudami.disclaimer")}
               </p>
             </div>
           </div>
@@ -341,15 +356,20 @@ export default function HomePage() {
             <div>
               <p className="kmd-eyebrow text-accent">PowerPill Plus</p>
               <h2 className="mt-2 text-2xl font-bold tracking-tight">
-                Drive smarter. Drive farther. Save more.
+                {t("home.spotlight.powerpill.title")}
               </h2>
               <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-                Advanced fuel conditioning technology designed for gasoline and diesel engines,
-                available for full-size fuel tanks and for motorcycles and small engines.
+                {t("home.spotlight.powerpill.intro")}
               </p>
 
               <ul className="mt-5 grid gap-2 sm:grid-cols-2">
-                {POWERPILL_BENEFITS.map((benefit) => (
+                {[
+                  t("home.feature.powerpillEfficiency"),
+                  t("home.feature.powerpillCombustion"),
+                  t("home.feature.powerpillDeposits"),
+                  t("home.feature.powerpillSmoother"),
+                  t("home.feature.powerpillDosage"),
+                ].map((benefit) => (
                   <li key={benefit} className="flex items-start gap-2 text-xs text-foreground/85">
                     <Flame className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
                     {benefit}
@@ -374,7 +394,7 @@ export default function HomePage() {
                     />
                     <Button asChild variant="brand">
                       <Link to={powerpill.slug ? `/shop/${powerpill.slug}` : "/shop"}>
-                        Shop PowerPill Plus
+                        {t("home.spotlight.powerpill.shop")}
                       </Link>
                     </Button>
                   </div>
@@ -382,8 +402,7 @@ export default function HomePage() {
               ) : null}
 
               <p className="mt-4 text-[11px] leading-relaxed text-muted-foreground">
-                {powerpill?.disclaimer ??
-                  "Performance results may vary depending on engine condition, fuel quality and operating conditions."}
+                {powerpill?.disclaimer ?? t("home.spotlight.powerpill.disclaimer")}
               </p>
             </div>
 
@@ -400,12 +419,42 @@ export default function HomePage() {
       ) : null}
 
       {/* ---------------- LED bulb / closet / digital ---------------- */}
-      <Section tone="muted" title="Also in the shop">
+      <Section tone="muted" title={t("home.alsoInShop.title")}>
         <div className="grid gap-4 lg:grid-cols-3">
           {[
-            { product: ledBulb, features: LED_BULB_FEATURES, icon: Lightbulb, fallbackImage: "/products/led-bulb.png" },
-            { product: closet, features: CLOSET_FEATURES, icon: Shirt, fallbackImage: "/products/kmd-closet.jpeg" },
-            { product: digital, features: DIGITAL_SERVICES, icon: MonitorSmartphone, fallbackImage: "/products/digital-services.png" },
+            {
+              product: ledBulb,
+              features: [
+                t("home.feature.ledEmergency"),
+                t("home.feature.ledBattery"),
+                t("home.feature.ledEnergySaving"),
+                t("home.feature.ledWarranty"),
+              ],
+              icon: Lightbulb,
+              fallbackImage: "/products/led-bulb.png",
+            },
+            {
+              product: closet,
+              features: [
+                t("home.feature.closetFabric"),
+                t("home.feature.closetSilhouette"),
+                t("home.feature.closetPricing"),
+              ],
+              icon: Shirt,
+              fallbackImage: "/products/kmd-closet.jpeg",
+            },
+            {
+              product: digital,
+              features: [
+                t("home.feature.digitalWebsites"),
+                t("home.feature.digitalLandingPages"),
+                t("home.feature.digitalEcommerce"),
+                t("home.feature.digitalApps"),
+                t("home.feature.digitalSolutions"),
+              ],
+              icon: MonitorSmartphone,
+              fallbackImage: "/products/digital-services.png",
+            },
           ]
             // A hidden product never reaches the catalogue, so its card is dropped.
             .filter((entry) => entry.product !== null)
@@ -444,7 +493,7 @@ export default function HomePage() {
                       />
                       <Button asChild variant="outline" size="sm" className="mt-3 w-full">
                         <Link to={entry.product.slug ? `/shop/${entry.product.slug}` : "/shop"}>
-                          View details
+                          {t("common.viewDetails")}
                         </Link>
                       </Button>
                     </div>
@@ -527,7 +576,11 @@ export default function HomePage() {
               {t("home.membership.howItPaysIntro")}
             </p>
             <ul className="mt-4 space-y-3">
-              {SPOTLIGHT_VALUES.map((row) => (
+              {[
+                { level: t("home.membership.level1"), detail: t("home.membership.level1Detail") },
+                { level: t("home.membership.level2"), detail: t("home.membership.level2Detail") },
+                { level: t("home.membership.levels35"), detail: t("home.membership.levels35Detail") },
+              ].map((row) => (
                 <li key={row.level} className="flex gap-3">
                   <span className="mt-0.5 shrink-0 rounded-md bg-secondary px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-secondary-foreground">
                     {row.level}

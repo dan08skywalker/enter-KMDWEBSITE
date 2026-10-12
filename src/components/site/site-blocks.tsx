@@ -6,10 +6,8 @@ import {
   ShieldCheck,
   Truck,
 } from "lucide-react";
-import { COMPANY, TRUST_SIGNALS } from "@/lib/site/content";
+import { COMPANY } from "@/lib/site/content";
 import { useSiteText } from "@/contexts/store-context";
-
-const ICONS = [CheckCircle2, Truck, Coins, ShieldCheck];
 
 /** Admin-published announcement strip. An empty setting hides it entirely. */
 export function AnnouncementBar() {
@@ -30,36 +28,42 @@ export function AnnouncementBar() {
 
 /** Trust strip reused under the hero and on the cart and checkout pages. */
 export function TrustStrip({ className = "" }: { className?: string }) {
+  const { t } = useTranslation();
+  // Each signal is listed explicitly so every key stays a literal the reporting
+  // can resolve; the English wording matches the published copy exactly.
+  const signals = [
+    { Icon: CheckCircle2, title: t("home.trust.verifiedPayments"), detail: t("home.trust.verifiedPaymentsDetail") },
+    { Icon: Truck, title: t("home.trust.realStock"), detail: t("home.trust.realStockDetail") },
+    { Icon: Coins, title: t("home.trust.ledgerRewards"), detail: t("home.trust.ledgerRewardsDetail") },
+    { Icon: ShieldCheck, title: t("home.trust.nationwide"), detail: t("home.trust.nationwideDetail") },
+  ];
+
   return (
     <ul className={`grid gap-3 sm:grid-cols-2 lg:grid-cols-4 ${className}`}>
-      {TRUST_SIGNALS.map((signal, index) => {
-        const Icon = ICONS[index] ?? CheckCircle2;
-        return (
-          <li key={signal.title} className="kmd-panel flex items-start gap-3 p-4">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
-              <Icon className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-xs font-semibold">{signal.title}</p>
-              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-                {signal.detail}
-              </p>
-            </div>
-          </li>
-        );
-      })}
+      {signals.map((signal) => (
+        <li key={signal.title} className="kmd-panel flex items-start gap-3 p-4">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary text-primary">
+            <signal.Icon className="h-4 w-4" />
+          </span>
+          <div>
+            <p className="text-xs font-semibold">{signal.title}</p>
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">{signal.detail}</p>
+          </div>
+        </li>
+      ))}
     </ul>
   );
 }
 
 /** Brand story block used on the homepage and the About page. */
 export function BrandTile() {
+  const { t } = useTranslation();
   return (
     <div className="kmd-brand-tile">
       <div className="kmd-gold-rule" />
       <p className="kmd-eyebrow mt-4 text-gold">{COMPANY.legalParent}</p>
-      <h3 className="mt-2 text-lg font-bold">{COMPANY.positioning}</h3>
-      <p className="mt-2 text-xs leading-relaxed text-white/80">{COMPANY.parentBlurb}</p>
+      <h3 className="mt-2 text-lg font-bold">{t("home.brand.tileTagline")}</h3>
+      <p className="mt-2 text-xs leading-relaxed text-white/80">{t("home.brand.tileBlurb")}</p>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { formatPeso, toNumber } from "@/lib/kmd/format";
 import { useMemberPricingContext } from "@/contexts/member-pricing-context";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ export function PriceTag({
   size = "md",
   className,
 }: PriceTagProps) {
+  const { t } = useTranslation();
   const pricing = useMemberPricingContext();
   const member = pricing.priceFor(sku);
 
@@ -48,7 +50,7 @@ export function PriceTag({
 
       {member && pricing.categoryLabel ? (
         <span className="whitespace-nowrap rounded-full border border-accent/40 bg-gold/12 px-2 py-0.5 text-[11px] font-bold text-accent">
-          Your Member Price · {pricing.categoryLabel}
+          {t("price.memberLabel", { category: pricing.categoryLabel })}
         </span>
       ) : null}
 
@@ -56,7 +58,7 @@ export function PriceTag({
         <>
           <span className="kmd-price-strike">{formatPeso(was)}</span>
           <span className="whitespace-nowrap rounded-full bg-gold px-2 py-0.5 text-[11px] font-bold text-gold-foreground">
-            Save {formatPeso(saving)}
+            {t("price.save", { amount: formatPeso(saving) })}
           </span>
         </>
       ) : null}

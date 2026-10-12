@@ -1,4 +1,5 @@
 import { Link } from "react-router-dom";
+import { useTranslation } from "react-i18next";
 import { FileText, ShoppingBag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PriceTag } from "@/components/site/price-tag";
@@ -13,6 +14,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
+  const { t } = useTranslation();
   const cart = useCart();
 
   const href = product.slug ? `/shop/${product.slug}` : "/shop";
@@ -54,7 +56,7 @@ export function ProductCard({ product }: ProductCardProps) {
         )}
         {product.regularPrice && product.regularPrice > product.effectivePrice ? (
           <span className="absolute left-3 top-3 whitespace-nowrap rounded-full bg-gold px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-gold-foreground">
-            Promo
+            {t("product.promo")}
           </span>
         ) : null}
       </Link>
@@ -99,10 +101,10 @@ export function ProductCard({ product }: ProductCardProps) {
               onClick={addToCart}
             >
               <ShoppingBag className="h-3.5 w-3.5" />
-              {canBuy ? "Add to cart" : "Unavailable"}
+              {canBuy ? t("common.addToBag") : t("common.unavailable")}
             </Button>
             <Button asChild variant="outline" size="sm">
-              <Link to={href}>Details</Link>
+              <Link to={href}>{t("common.viewDetails")}</Link>
             </Button>
           </div>
 
