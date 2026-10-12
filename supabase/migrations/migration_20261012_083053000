@@ -1,0 +1,79 @@
+-- Member registration address fields.
+--
+-- Same-business maintenance of the established member table: five new nullable
+-- address columns on public.profiles. They are nullable, so every existing member
+-- account keeps working exactly as it does today and nobody is asked to
+-- register again. No existing column, row, reward setting or ledger is touched.
+
+alter table public.profiles
+  add column if not exists street_address text,
+  add column if not exists city text,
+  add column if not exists region text,
+  add column if not exists postal_code text,
+  add column if not exists country text;
+
+comment on column public.profiles.street_address is 'Street address captured at registration. Optional: international addresses may omit parts.';
+comment on column public.profiles.city is 'City or town captured at registration.';
+comment on column public.profiles.region is 'Province, state or region captured at registration. Optional, because many countries do not use one.';
+comment on column public.profiles.postal_code is 'ZIP or postal code as typed by the member. Text, so letters, hyphens and leading zeros survive.';
+comment on column public.profiles.country is 'Country chosen from the ISO 3166-1 list at registration.';
+
+-- Registration writes the member record and then the address inside ONE
+-- transaction: the existing, audited registration function keeps its genealogy and
+-- duplicate rules untouched, and the address is attached before the call returns.
+-- If anything in the address step fails, the member row is rolled back with it.
+create or replace function public.kmd_register_member_with_address(
+  p_user_id uuid,
+  p_email text,
+  p_username text,
+  p_first_name text,
+  p_last_name text,
+  p_mobile text,
+  p_sponsor_code text default null,
+  p_account_type text default 'member',
+  p_is_test boolean default false,
+  p_street_address text default null,
+  p_city text default null,
+  p_region text default null,
+  p_postal_code text default null,
+  p_country text default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_profile jsonb;
+begin
+  v_profile := public.kmd_register_member(
+    p_user_id, p_email, p_username, p_first_name, p_last_name, p_mobile,
+    p_sponsor_code, p_account_type, p_is_test
+  );
+
+  update public.profiles
+     set street_address = nullif(btrim(coalesce(p_street_address, '')), ''),
+         city = nullif(btrim(coalesce(p_city, '')), ''),
+         region = nullif(btrim(coalesce(p_region, '')), ''),
+         postal_code = nullif(btrim(coalesce(p_postal_code, '')), ''),
+         country = nullif(btrim(coalesce(p_country, '')), ''),
+         updated_at = now()
+   where id = p_user_id;
+
+  if not found then
+    raise exception 'KMD_VALIDATION: the member record could not receive its address';
+  end if;
+
+  return v_profile || jsonb_build_object('address', jsonb_build_object(
+    'streetAddress', nullif(btrim(coalesce(p_street_address, '')), ''),
+    'city', nullif(btrim(coalesce(p_city, '')), ''),
+    'region', nullif(btrim(coalesce(p_region, '')), ''),
+    'postalCode', nullif(btrim(coalesce(p_postal_code, '')), ''),
+    'country', nullif(btrim(coalesce(p_country, '')), '')
+  ));
+end $$;
+
+revoke all on function public.kmd_register_member_with_address(uuid,text,text,text,text,text,text,text,boolean,text,text,text,text,text) from public, anon, authenticated;
+grant execute on function public.kmd_register_member_with_address(uuid,text,text,text,text,text,text,text,boolean,text,text,text,text,text) to service_role;
+
+select column_name, data_type, is_nullable
+  from information_schema.columns
+ where table_schema = 'public' and table_name = 'profiles'
+   and column_name in ('street_address','city','region','postal_code','country')
+ order by column_name;

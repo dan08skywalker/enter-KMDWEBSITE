@@ -4624,7 +4624,9 @@ export type Database = {
           account_status: string
           account_type: string
           activation_date: string | null
+          city: string | null
           contact_email: string | null
+          country: string | null
           created_at: string
           direct_sponsor_id: string | null
           email: string
@@ -4637,11 +4639,14 @@ export type Database = {
           member_code: string
           mobile_number: string | null
           package_id: string | null
+          postal_code: string | null
           profile_photo_url: string | null
           referral_code: string
+          region: string | null
           registration_date: string
           shopping_wallet_balance: number
           sponsor_code: string | null
+          street_address: string | null
           total_lifetime_earnings: number
           unilevel_points_balance: number
           updated_at: string
@@ -4651,7 +4656,9 @@ export type Database = {
           account_status?: string
           account_type?: string
           activation_date?: string | null
+          city?: string | null
           contact_email?: string | null
+          country?: string | null
           created_at?: string
           direct_sponsor_id?: string | null
           email: string
@@ -4664,11 +4671,14 @@ export type Database = {
           member_code: string
           mobile_number?: string | null
           package_id?: string | null
+          postal_code?: string | null
           profile_photo_url?: string | null
           referral_code: string
+          region?: string | null
           registration_date?: string
           shopping_wallet_balance?: number
           sponsor_code?: string | null
+          street_address?: string | null
           total_lifetime_earnings?: number
           unilevel_points_balance?: number
           updated_at?: string
@@ -4678,7 +4688,9 @@ export type Database = {
           account_status?: string
           account_type?: string
           activation_date?: string | null
+          city?: string | null
           contact_email?: string | null
+          country?: string | null
           created_at?: string
           direct_sponsor_id?: string | null
           email?: string
@@ -4691,11 +4703,14 @@ export type Database = {
           member_code?: string
           mobile_number?: string | null
           package_id?: string | null
+          postal_code?: string | null
           profile_photo_url?: string | null
           referral_code?: string
+          region?: string | null
           registration_date?: string
           shopping_wallet_balance?: number
           sponsor_code?: string | null
+          street_address?: string | null
           total_lifetime_earnings?: number
           unilevel_points_balance?: number
           updated_at?: string
@@ -6071,6 +6086,25 @@ export type Database = {
         }
         Returns: Json
       }
+      kmd_register_member_with_address: {
+        Args: {
+          p_account_type?: string
+          p_city?: string
+          p_country?: string
+          p_email: string
+          p_first_name: string
+          p_is_test?: boolean
+          p_last_name: string
+          p_mobile: string
+          p_postal_code?: string
+          p_region?: string
+          p_sponsor_code?: string
+          p_street_address?: string
+          p_user_id: string
+          p_username: string
+        }
+        Returns: Json
+      }
       kmd_reject_payment: {
         Args: { p_actor?: string; p_order_id: string; p_reason?: string }
         Returns: Json
@@ -6277,72 +6311,6 @@ export type Database = {
         }
         Relationships: []
       }
-      messages_2026_10_07: {
-        Row: {
-          event: string | null
-          extension: string
-          id: string
-          inserted_at: string
-          payload: Json | null
-          private: boolean | null
-          topic: string
-          updated_at: string
-        }
-        Insert: {
-          event?: string | null
-          extension: string
-          id?: string
-          inserted_at?: string
-          payload?: Json | null
-          private?: boolean | null
-          topic: string
-          updated_at?: string
-        }
-        Update: {
-          event?: string | null
-          extension?: string
-          id?: string
-          inserted_at?: string
-          payload?: Json | null
-          private?: boolean | null
-          topic?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      messages_2026_10_08: {
-        Row: {
-          event: string | null
-          extension: string
-          id: string
-          inserted_at: string
-          payload: Json | null
-          private: boolean | null
-          topic: string
-          updated_at: string
-        }
-        Insert: {
-          event?: string | null
-          extension: string
-          id?: string
-          inserted_at?: string
-          payload?: Json | null
-          private?: boolean | null
-          topic: string
-          updated_at?: string
-        }
-        Update: {
-          event?: string | null
-          extension?: string
-          id?: string
-          inserted_at?: string
-          payload?: Json | null
-          private?: boolean | null
-          topic?: string
-          updated_at?: string
-        }
-        Relationships: []
-      }
       messages_2026_10_09: {
         Row: {
           event: string | null
@@ -6476,6 +6444,72 @@ export type Database = {
         Relationships: []
       }
       messages_2026_10_13: {
+        Row: {
+          event: string | null
+          extension: string
+          id: string
+          inserted_at: string
+          payload: Json | null
+          private: boolean | null
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          event?: string | null
+          extension: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          event?: string | null
+          extension?: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      messages_2026_10_14: {
+        Row: {
+          event: string | null
+          extension: string
+          id: string
+          inserted_at: string
+          payload: Json | null
+          private: boolean | null
+          topic: string
+          updated_at: string
+        }
+        Insert: {
+          event?: string | null
+          extension: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic: string
+          updated_at?: string
+        }
+        Update: {
+          event?: string | null
+          extension?: string
+          id?: string
+          inserted_at?: string
+          payload?: Json | null
+          private?: boolean | null
+          topic?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      messages_2026_10_15: {
         Row: {
           event: string | null
           extension: string

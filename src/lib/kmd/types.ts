@@ -45,6 +45,14 @@ export interface Profile {
   email: string;
   /** Optional contact address. Has no effect on signing in. */
   contact_email: string | null;
+  /** Address captured at registration. All parts are optional. */
+  street_address: string | null;
+  city: string | null;
+  /** Province, state or region. Many countries do not use one. */
+  region: string | null;
+  /** ZIP or postal code exactly as typed: text, so leading zeros survive. */
+  postal_code: string | null;
+  country: string | null;
   sponsor_code: string | null;
   direct_sponsor_id: string | null;
   package_id: string | null;

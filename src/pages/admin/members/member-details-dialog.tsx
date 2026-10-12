@@ -33,6 +33,11 @@ interface LoadedDetails {
     | "mobile_number"
     | "email"
     | "contact_email"
+    | "street_address"
+    | "city"
+    | "region"
+    | "postal_code"
+    | "country"
   >;
   loginEmail: string | null;
   loginEmailMatchesProfile: boolean;
@@ -400,6 +405,34 @@ export function MemberDetailsDialog({
                 {error}
               </p>
             ) : null}
+
+            {/* The address the member entered when they registered. Shown for the
+                record; empty parts mean the country uses none. */}
+            <div className="rounded-lg border bg-muted/30 p-4">
+              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Address on record
+              </h3>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                {(
+                  [
+                    ["Street Address", loaded.profile.street_address],
+                    ["City", loaded.profile.city],
+                    ["Province / State / Region", loaded.profile.region],
+                    ["ZIP / Postal Code", loaded.profile.postal_code],
+                    ["Country", loaded.profile.country],
+                  ] as Array<[string, string | null]>
+                ).map(([label, value]) => (
+                  <div key={label} className="min-w-0">
+                    <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                      {label}
+                    </dt>
+                    <dd className={value ? "mt-0.5 break-words text-xs" : "mt-0.5 text-xs text-muted-foreground"}>
+                      {value ?? "Not provided"}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
 
             {!validation.ok ? (
               <ul className="space-y-1 text-[11px] text-destructive">

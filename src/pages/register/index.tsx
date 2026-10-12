@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
+import { CountrySelect } from "@/components/kmd/country-select";
 import { PASSWORD_HINT } from "@/lib/kmd/constants";
 
 interface SponsorPreview {
@@ -45,6 +46,11 @@ export default function Register() {
   const [lastName, setLastName] = useState("");
   const [mobile, setMobile] = useState("");
   const [email, setEmail] = useState("");
+  const [streetAddress, setStreetAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [region, setRegion] = useState("");
+  const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("");
   const [sponsorCode, setSponsorCode] = useState(referralCode);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -141,6 +147,11 @@ export default function Register() {
         lastName,
         mobile,
         email,
+        streetAddress,
+        city,
+        region,
+        postalCode,
+        country,
         username,
         password,
         confirmPassword,
@@ -354,6 +365,73 @@ export default function Register() {
                     required
                   />
                 </div>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="register-street">Street Address</Label>
+                  <Input
+                    id="register-street"
+                    value={streetAddress}
+                    onChange={(event) => setStreetAddress(event.target.value)}
+                    autoComplete="address-line1"
+                    placeholder="House number and street"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="register-city">City</Label>
+                  <Input
+                    id="register-city"
+                    value={city}
+                    onChange={(event) => setCity(event.target.value)}
+                    autoComplete="address-level2"
+                    placeholder="City or town"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="register-region">Province / State / Region</Label>
+                  <Input
+                    id="register-region"
+                    value={region}
+                    onChange={(event) => setRegion(event.target.value)}
+                    autoComplete="address-level1"
+                    placeholder="Province, state or region"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Leave this empty if your country does not use one.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="register-postal">ZIP / Postal Code</Label>
+                  <Input
+                    id="register-postal"
+                    value={postalCode}
+                    onChange={(event) => setPostalCode(event.target.value)}
+                    inputMode="text"
+                    autoComplete="postal-code"
+                    placeholder="Letters or numbers"
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Letters, numbers and leading zeros are accepted.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="register-country">Country</Label>
+                  <CountrySelect
+                    id="register-country"
+                    value={country}
+                    onChange={setCountry}
+                  />
+                </div>
+
+                <p className="text-[11px] text-muted-foreground sm:col-span-2">
+                  The address fields are optional, so members from any country can register. Your
+                  country is used on your record and on any delivery arrangement.
+                </p>
               </div>
 
               <div className="space-y-2">

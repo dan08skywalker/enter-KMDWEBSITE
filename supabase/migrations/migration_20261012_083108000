@@ -1,0 +1,33 @@
+-- Verification only, and rolled back: nothing is left behind on any member row.
+-- It proves the new columns store an international address exactly as typed,
+-- including letters, a hyphen and a leading zero.
+begin;
+
+update public.profiles
+   set street_address = '12-B Mabini Street, Barangay San Jose',
+       city = 'Lahore',
+       region = 'Punjab',
+       postal_code = '05402',
+       country = 'Pakistan'
+ where id = (select id from public.profiles where is_test order by member_code limit 1);
+
+select member_code, street_address, city, region, postal_code, country,
+       -- prove the leading zero survived
+       (postal_code = '05402') as leading_zero_kept,
+       (postal_code ~ '^[0-9]{5}$') as numeric_pattern_kept
+  from public.profiles
+ where id = (select id from public.profiles where is_test order by member_code limit 1);
+
+-- And that a country which uses neither a province nor a postal code stores fine.
+update public.profiles
+   set region = null, postal_code = null, country = 'Hong Kong'
+ where id = (select id from public.profiles where is_test order by member_code limit 1);
+
+select member_code, city, region, postal_code, country
+  from public.profiles
+ where id = (select id from public.profiles where is_test order by member_code limit 1);
+
+rollback;
+
+select count(*) as members_with_any_address from public.profiles
+ where coalesce(street_address, city, region, postal_code, country) is not null;

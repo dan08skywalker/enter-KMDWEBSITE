@@ -21,6 +21,11 @@ const json = (body: unknown, status = 200) =>
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 
+/** Address parts, each optional: many countries use neither a province nor a postcode. */
+const MAX_ADDRESS_PART = 120;
+const MAX_POSTAL = 20;
+const MAX_COUNTRY = 80;
+
 const ERROR_CODES: Record<string, string> = {
   KMD_VALIDATION: "VALIDATION",
   KMD_DUPLICATE_USERNAME: "DUPLICATE_USERNAME",
@@ -67,6 +72,14 @@ Deno.serve(async (req) => {
     const sponsorCode = String(body.sponsorCode ?? "").trim();
     const accountType = body.accountType === "retailer" ? "retailer" : "member";
 
+    // Address details. Nothing here is required, because a country that uses no
+    // province or no postal code must still be able to register.
+    const streetAddress = String(body.streetAddress ?? "").trim().slice(0, MAX_ADDRESS_PART);
+    const city = String(body.city ?? "").trim().slice(0, MAX_ADDRESS_PART);
+    const region = String(body.region ?? "").trim().slice(0, MAX_ADDRESS_PART);
+    const postalCode = String(body.postalCode ?? "").trim().slice(0, MAX_POSTAL);
+    const country = String(body.country ?? "").trim().slice(0, MAX_COUNTRY);
+
     if (!firstName) return json({ error: "VALIDATION", message: "First name is required" });
     if (!lastName) return json({ error: "VALIDATION", message: "Last name is required" });
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
@@ -89,6 +102,17 @@ Deno.serve(async (req) => {
     }
     if (password !== confirmPassword) {
       return json({ error: "VALIDATION", message: "Password and confirmation do not match" });
+    }
+    // Letters, numbers, spaces and hyphens: leading zeros and alphanumeric codes
+    // are normal outside the Philippines.
+    if (postalCode && !/^[A-Za-z0-9][A-Za-z0-9\s-]{0,19}$/.test(postalCode)) {
+      return json({
+        error: "VALIDATION",
+        message: "ZIP or postal code may use letters, numbers, spaces and hyphens",
+      });
+    }
+    if (country && !/^[A-Za-z][A-Za-z\s.'(),\-/]{0,79}$/.test(country)) {
+      return json({ error: "VALIDATION", message: "Choose a country from the list" });
     }
 
     const svc = serviceClient();
@@ -138,7 +162,9 @@ Deno.serve(async (req) => {
 
     const userId = created.user.id;
 
-    const { data: profile, error: registerError } = await svc.rpc("kmd_register_member", {
+    // The member record and its address are written in one transaction, so a
+    // failure leaves neither behind.
+    const { data: profile, error: registerError } = await svc.rpc("kmd_register_member_with_address", {
       p_user_id: userId,
       p_email: email,
       p_username: username,
@@ -148,6 +174,11 @@ Deno.serve(async (req) => {
       p_sponsor_code: sponsorCode || null,
       p_account_type: accountType,
       p_is_test: false,
+      p_street_address: streetAddress || null,
+      p_city: city || null,
+      p_region: region || null,
+      p_postal_code: postalCode || null,
+      p_country: country || null,
     });
 
     if (registerError) {
@@ -185,6 +216,8 @@ Deno.serve(async (req) => {
       sponsorCode || "none",
       "type:",
       accountType,
+      "country:",
+      country || "not given",
     );
 
     return json({ ok: true, ...profile, bootstrapAdmin });

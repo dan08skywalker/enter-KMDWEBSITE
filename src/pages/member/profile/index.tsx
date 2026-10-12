@@ -74,6 +74,14 @@ export default function MemberProfile() {
     await refreshProfile();
   };
 
+  const address = [
+    { label: "Street Address", value: profile?.street_address },
+    { label: "City", value: profile?.city },
+    { label: "Province / State / Region", value: profile?.region },
+    { label: "ZIP / Postal Code", value: profile?.postal_code },
+    { label: "Country", value: profile?.country },
+  ];
+
   const rows: DetailRow[] = [
     { label: "Member ID", value: profile?.member_code ?? "\u2014", mono: true },
     { label: "Full Name", value: profile?.full_name ?? "\u2014" },
@@ -136,6 +144,26 @@ export default function MemberProfile() {
                     <span className="text-sm text-muted-foreground">Not assigned</span>
                   )}
                 </dd>
+              </div>
+
+              {/* Address captured when the member registered. Empty parts simply say
+                  so, because many countries use no province or no postal code. */}
+              <div className="px-5 py-4">
+                <h3 className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  Address
+                </h3>
+                <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                  {address.map((field) => (
+                    <div key={field.label} className="min-w-0">
+                      <dt className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {field.label}
+                      </dt>
+                      <dd className={field.value ? "mt-0.5 break-words text-sm" : "mt-0.5 text-sm text-muted-foreground"}>
+                        {field.value ?? "Not provided"}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
               </div>
             </dl>
           )}

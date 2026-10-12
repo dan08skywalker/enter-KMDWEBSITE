@@ -196,7 +196,9 @@ Deno.serve(async (req) => {
         const memberId = String(body?.memberId ?? "");
         const { data: profile, error: profileError } = await svc
           .from("profiles")
-          .select("id, member_code, first_name, last_name, full_name, mobile_number, email, contact_email, account_status, is_test")
+          .select(
+            "id, member_code, first_name, last_name, full_name, mobile_number, email, contact_email, account_status, is_test, street_address, city, region, postal_code, country",
+          )
           .eq("id", memberId)
           .maybeSingle();
 
