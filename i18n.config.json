@@ -13,6 +13,12 @@
       "label": "Filipino",
       "detect": ["fil", "tl", "fil-PH", "tl-PH"],
       "dir": "ltr"
+    },
+    {
+      "code": "fr",
+      "label": "Français",
+      "detect": ["fr"],
+      "dir": "ltr"
     }
   ]
 }
