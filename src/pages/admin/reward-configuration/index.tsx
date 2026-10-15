@@ -58,6 +58,7 @@ export default function AdminRewardConfiguration() {
   const [editing, setEditing] = useState<MatrixRow | null>(null);
   const [form, setForm] = useState<ConfigForm | null>(null);
   const [busy, setBusy] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const load = async () => {
     setLoading(true);
@@ -87,6 +88,7 @@ export default function AdminRewardConfiguration() {
 
   const openEdit = (row: MatrixRow) => {
     setEditing(row);
+    setFieldErrors({});
     setForm({
       level1: String(row.level1_points),
       level2: String(row.level2_points),
@@ -104,32 +106,80 @@ export default function AdminRewardConfiguration() {
     });
   };
 
+  const errorsFor = (values: ConfigForm): Record<string, string> => {
+    const errors: Record<string, string> = {};
+    const invalid = "Enter an amount of 0 or more, or leave it empty to keep the current value.";
+
+    UNILEVEL_LEVELS.forEach((level) => {
+      const key = `level${level}` as keyof ConfigForm;
+      const raw = (values[key] as string).trim();
+      // Empty means "not edited": the saved value is left untouched.
+      if (raw.length === 0) return;
+      if (!/^\d+(\.\d+)?$/.test(raw)) errors[key] = invalid;
+    });
+
+    if (values.loyaltyCredit.trim().length > 0 && !/^\d+(\.\d+)?$/.test(values.loyaltyCredit.trim())) {
+      errors.loyaltyCredit = invalid;
+    }
+
+    return errors;
+  };
+
+  /** An empty field is sent as null, which the database reads as "leave unchanged". */
+  const amountOrNull = (raw: string): number | null =>
+    raw.trim().length === 0 ? null : Number(raw);
+
   const save = async () => {
     if (!editing || !form) return;
-    setBusy(true);
-    const outcome = await invokeFunction("admin-actions", {
-      action: "update_reward_config",
-      productId: editing.product_id,
-      level1: Number(form.level1) || 0,
-      level2: Number(form.level2) || 0,
-      level3: Number(form.level3) || 0,
-      level4: Number(form.level4) || 0,
-      level5: Number(form.level5) || 0,
-      level6: Number(form.level6) || 0,
-      level7: Number(form.level7) || 0,
-      level8: Number(form.level8) || 0,
-      level9: Number(form.level9) || 0,
-      level10: Number(form.level10) || 0,
-      loyaltyCredit: Number(form.loyaltyCredit) || 0,
-      loyaltyBeneficiaryLevel: Number(form.loyaltyBeneficiaryLevel) || 1,
-      isActive: form.isActive,
-    });
-    setBusy(false);
 
-    if (!outcome.ok) {
-      toast.error("Could not save the configuration", { description: outcome.error });
+    const problems = errorsFor(form);
+    setFieldErrors(problems);
+    if (Object.keys(problems).length > 0) {
+      toast.error("Check the highlighted values", {
+        description: "Nothing was saved. Correct the fields marked in red and save again.",
+      });
       return;
     }
+
+    setBusy(true);
+    const outcome = await invokeFunction<{ result?: { status?: string; reasonText?: string } }>(
+      "admin-actions",
+      {
+        action: "update_reward_config",
+        productId: editing.product_id,
+        level1: amountOrNull(form.level1),
+        level2: amountOrNull(form.level2),
+        level3: amountOrNull(form.level3),
+        level4: amountOrNull(form.level4),
+        level5: amountOrNull(form.level5),
+        level6: amountOrNull(form.level6),
+        level7: amountOrNull(form.level7),
+        level8: amountOrNull(form.level8),
+        level9: amountOrNull(form.level9),
+        level10: amountOrNull(form.level10),
+        loyaltyCredit: amountOrNull(form.loyaltyCredit),
+        loyaltyBeneficiaryLevel: Number(form.loyaltyBeneficiaryLevel),
+        isActive: form.isActive,
+      },
+    );
+    setBusy(false);
+
+    // The console answers every action as { ok, result }; the save is only confirmed
+    // when the database itself reported UPDATED.
+    const result = outcome.data?.result;
+    if (!outcome.ok || result?.status !== "UPDATED") {
+      console.error("Reward configuration save refused:", {
+        sku: editing.sku,
+        error: outcome.error,
+        result,
+      });
+      toast.error("Could not save the configuration", {
+        description: result?.reasonText ?? outcome.error ?? "The database did not confirm the save.",
+      });
+      // The dialog stays open with the entered values so nothing has to be retyped.
+      return;
+    }
+
     toast.success("Reward configuration saved", {
       description: "The change is recorded on the audit log. Past ledger entries are never rewritten.",
     });
@@ -344,6 +394,10 @@ export default function AdminRewardConfiguration() {
             <div className="space-y-5">
               <div>
                 <p className="kmd-label">Unilevel points per qualified unit</p>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Levels 1 to 10. A value of 0 pays nothing at that level on purpose; leave a field
+                  empty to keep the value already saved.
+                </p>
                 <div className="mt-2 grid gap-3 sm:grid-cols-5">
                   {UNILEVEL_LEVELS.map((level) => (
                     <div key={level} className="space-y-1.5">
@@ -354,13 +408,20 @@ export default function AdminRewardConfiguration() {
                         id={`level-${level}`}
                         inputMode="decimal"
                         value={form[`level${level}` as keyof ConfigForm] as string}
-                        onChange={(event) =>
+                        aria-invalid={Boolean(fieldErrors[`level${level}`])}
+                        onChange={(event) => {
                           setForm({
                             ...form,
                             [`level${level}`]: event.target.value.replace(/[^0-9.]/g, ""),
-                          })
-                        }
+                          });
+                          setFieldErrors((current) => ({ ...current, [`level${level}`]: "" }));
+                        }}
                       />
+                      {fieldErrors[`level${level}`] ? (
+                        <p className="text-[10px] font-medium text-destructive">
+                          {fieldErrors[`level${level}`]}
+                        </p>
+                      ) : null}
                     </div>
                   ))}
                 </div>
@@ -379,10 +440,15 @@ export default function AdminRewardConfiguration() {
                       id="loyalty-credit"
                       inputMode="decimal"
                       value={form.loyaltyCredit}
-                      onChange={(event) =>
-                        setForm({ ...form, loyaltyCredit: event.target.value.replace(/[^0-9.]/g, "") })
-                      }
+                      aria-invalid={Boolean(fieldErrors.loyaltyCredit)}
+                      onChange={(event) => {
+                        setForm({ ...form, loyaltyCredit: event.target.value.replace(/[^0-9.]/g, "") });
+                        setFieldErrors((current) => ({ ...current, loyaltyCredit: "" }));
+                      }}
                     />
+                    {fieldErrors.loyaltyCredit ? (
+                      <p className="text-[10px] font-medium text-destructive">{fieldErrors.loyaltyCredit}</p>
+                    ) : null}
                   </div>
                   <div className="space-y-1.5">
                     <Label htmlFor="loyalty-level" className="text-xs">

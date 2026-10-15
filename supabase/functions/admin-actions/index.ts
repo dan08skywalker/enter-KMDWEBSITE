@@ -26,6 +26,19 @@ function env(name: string) {
   return value;
 }
 
+/**
+ * A reward amount on its way to the database.
+ *
+ * `null` means the field was left empty, which the database reads as "keep the value
+ * already saved". Converting an empty field to 0 here would silently wipe a level the
+ * administrator never touched.
+ */
+function optionalAmount(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function serviceClient() {
   return createClient(env("SUPABASE_URL"), env("SUPABASE_SERVICE_ROLE_KEY"), {
     auth: { persistSession: false, autoRefreshToken: false },
@@ -360,19 +373,20 @@ Deno.serve(async (req) => {
       case "update_reward_config":
         return run("kmd_update_reward_config", {
           p_product_id: String(body?.productId ?? ""),
-          p_l1: Number(body?.level1 ?? 0),
-          p_l2: Number(body?.level2 ?? 0),
-          p_l3: Number(body?.level3 ?? 0),
-          p_l4: Number(body?.level4 ?? 0),
-          p_l5: Number(body?.level5 ?? 0),
-          p_l6: Number(body?.level6 ?? 0),
-          p_l7: Number(body?.level7 ?? 0),
-          p_l8: Number(body?.level8 ?? 0),
-          p_l9: Number(body?.level9 ?? 0),
-          p_l10: Number(body?.level10 ?? 0),
-          p_loyalty: Number(body?.loyaltyCredit ?? 0),
-          p_loyalty_level: Number(body?.loyaltyBeneficiaryLevel ?? 1),
-          p_is_active: body?.isActive !== false,
+          p_l1: optionalAmount(body?.level1),
+          p_l2: optionalAmount(body?.level2),
+          p_l3: optionalAmount(body?.level3),
+          p_l4: optionalAmount(body?.level4),
+          p_l5: optionalAmount(body?.level5),
+          p_l6: optionalAmount(body?.level6),
+          p_l7: optionalAmount(body?.level7),
+          p_l8: optionalAmount(body?.level8),
+          p_l9: optionalAmount(body?.level9),
+          p_l10: optionalAmount(body?.level10),
+          p_loyalty: optionalAmount(body?.loyaltyCredit),
+          p_loyalty_level: optionalAmount(body?.loyaltyBeneficiaryLevel),
+          p_is_active:
+            body?.isActive === null || body?.isActive === undefined ? null : body.isActive === true,
           p_actor: actorId,
         });
 

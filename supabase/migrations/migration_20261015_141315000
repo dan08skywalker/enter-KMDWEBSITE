@@ -1,0 +1,119 @@
+-- REWARD CONFIGURATION SAVE — resolve the function ambiguity.
+--
+-- Cause: adding p_l6..p_l10 created a SECOND overload instead of replacing the old
+-- one (CREATE OR REPLACE only replaces an identical signature). Two candidates then
+-- existed, and a named call carrying the new parameters could be served by either, so
+-- PostgREST reported "Could not choose the best candidate function between ...".
+--
+-- Resolution: keep ONE canonical ten-level interface. The obsolete ten-parameter
+-- overload is dropped — it has no dependents (checked in pg_depend) and its callers
+-- keep working because the canonical function keeps the same parameter names, in the
+-- same order, with defaults for the five new levels.
+--
+-- The canonical function also gains "omitted means unchanged": a NULL parameter now
+-- leaves the stored value alone, so a level that was not edited is never reset, while
+-- an explicit 0 is still stored as an intentional zero.
+drop function if exists public.kmd_update_reward_config(uuid, numeric, numeric, numeric, numeric, numeric, numeric, integer, boolean, uuid);
+
+create or replace function public.kmd_update_reward_config(
+  p_product_id uuid,
+  p_l1 numeric default null,
+  p_l2 numeric default null,
+  p_l3 numeric default null,
+  p_l4 numeric default null,
+  p_l5 numeric default null,
+  p_loyalty numeric default null,
+  p_loyalty_level integer default null,
+  p_is_active boolean default null,
+  p_actor uuid default null,
+  p_l6 numeric default null,
+  p_l7 numeric default null,
+  p_l8 numeric default null,
+  p_l9 numeric default null,
+  p_l10 numeric default null
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.reward_configurations%rowtype;
+  v_after public.reward_configurations%rowtype;
+begin
+  select * into v_before from public.reward_configurations where product_id = p_product_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','REWARD_CONFIGURATION_NOT_FOUND',
+      'reasonText','No reward configuration exists for that product');
+  end if;
+
+  if p_actor is null or not public.kmd_is_admin(p_actor) then
+    return jsonb_build_object('status','FAILED','reason','NOT_AUTHORIZED',
+      'reasonText','Administrator role required to change reward configuration');
+  end if;
+
+  if p_l1 is not null and p_l1 < 0 or p_l2 is not null and p_l2 < 0
+     or p_l3 is not null and p_l3 < 0 or p_l4 is not null and p_l4 < 0
+     or p_l5 is not null and p_l5 < 0 or p_l6 is not null and p_l6 < 0
+     or p_l7 is not null and p_l7 < 0 or p_l8 is not null and p_l8 < 0
+     or p_l9 is not null and p_l9 < 0 or p_l10 is not null and p_l10 < 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_AMOUNT',
+      'reasonText','Reward amounts cannot be negative');
+  end if;
+
+  if p_loyalty is not null and p_loyalty < 0 then
+    return jsonb_build_object('status','FAILED','reason','INVALID_AMOUNT',
+      'reasonText','The loyalty credit cannot be negative');
+  end if;
+
+  -- Loyalty keeps its own range: it is a separate reward type, not an eleventh level.
+  if p_loyalty_level is not null and p_loyalty_level not in (1,2,3,4,5) then
+    return jsonb_build_object('status','FAILED','reason','INVALID_LOYALTY_LEVEL',
+      'reasonText','Loyalty beneficiary level must be between 1 and 5');
+  end if;
+
+  update public.reward_configurations
+    set level1_points = greatest(coalesce(p_l1, level1_points), 0),
+        level2_points = greatest(coalesce(p_l2, level2_points), 0),
+        level3_points = greatest(coalesce(p_l3, level3_points), 0),
+        level4_points = greatest(coalesce(p_l4, level4_points), 0),
+        level5_points = greatest(coalesce(p_l5, level5_points), 0),
+        level6_points = greatest(coalesce(p_l6, level6_points), 0),
+        level7_points = greatest(coalesce(p_l7, level7_points), 0),
+        level8_points = greatest(coalesce(p_l8, level8_points), 0),
+        level9_points = greatest(coalesce(p_l9, level9_points), 0),
+        level10_points = greatest(coalesce(p_l10, level10_points), 0),
+        loyalty_credit = greatest(coalesce(p_loyalty, loyalty_credit), 0),
+        loyalty_beneficiary_level = coalesce(p_loyalty_level, loyalty_beneficiary_level),
+        is_active = coalesce(p_is_active, is_active),
+        updated_by = coalesce(p_actor, updated_by)
+    where product_id = p_product_id
+    returning * into v_after;
+
+  perform public.kmd_audit(p_actor, 'REWARD_CONFIGURATION_CHANGE', null, null,
+    'reward_configurations', p_product_id::text,
+    jsonb_build_object('level1', v_before.level1_points, 'level2', v_before.level2_points,
+      'level3', v_before.level3_points, 'level4', v_before.level4_points, 'level5', v_before.level5_points,
+      'level6', v_before.level6_points, 'level7', v_before.level7_points, 'level8', v_before.level8_points,
+      'level9', v_before.level9_points, 'level10', v_before.level10_points,
+      'loyaltyCredit', v_before.loyalty_credit, 'loyaltyLevel', v_before.loyalty_beneficiary_level,
+      'isActive', v_before.is_active),
+    jsonb_build_object('level1', v_after.level1_points, 'level2', v_after.level2_points,
+      'level3', v_after.level3_points, 'level4', v_after.level4_points, 'level5', v_after.level5_points,
+      'level6', v_after.level6_points, 'level7', v_after.level7_points, 'level8', v_after.level8_points,
+      'level9', v_after.level9_points, 'level10', v_after.level10_points,
+      'loyaltyCredit', v_after.loyalty_credit, 'loyaltyLevel', v_after.loyalty_beneficiary_level,
+      'isActive', v_after.is_active),
+    'Reward configuration updated for SKU ' || v_after.sku, false);
+
+  return jsonb_build_object('status','UPDATED','sku', v_after.sku,
+    'configuration', to_jsonb(v_after), 'reasonText','Reward configuration saved and audited');
+end $$;
+
+-- Permissions are unchanged: the function stays executable by the service role only,
+-- which is how the admin console reaches it (after its own administrator check).
+revoke all on function public.kmd_update_reward_config(uuid,numeric,numeric,numeric,numeric,numeric,numeric,integer,boolean,uuid,numeric,numeric,numeric,numeric,numeric) from public, anon, authenticated;
+grant execute on function public.kmd_update_reward_config(uuid,numeric,numeric,numeric,numeric,numeric,numeric,integer,boolean,uuid,numeric,numeric,numeric,numeric,numeric) to service_role;
+
+-- Refresh the PostgREST schema cache so the resolved signature is visible immediately.
+notify pgrst, 'reload schema';
+
+select 'candidate functions for update_reward_config' as item, count(*)::text as value
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname='public' and p.proname='kmd_update_reward_config';

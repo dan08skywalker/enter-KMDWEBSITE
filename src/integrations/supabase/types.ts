@@ -6253,36 +6253,23 @@ export type Database = {
         Returns: Json
       }
       kmd_update_reward_config: {
-        Args:
-          | {
-              p_actor: string
-              p_is_active: boolean
-              p_l1: number
-              p_l10?: number
-              p_l2: number
-              p_l3: number
-              p_l4: number
-              p_l5: number
-              p_l6?: number
-              p_l7?: number
-              p_l8?: number
-              p_l9?: number
-              p_loyalty: number
-              p_loyalty_level: number
-              p_product_id: string
-            }
-          | {
-              p_actor: string
-              p_is_active: boolean
-              p_l1: number
-              p_l2: number
-              p_l3: number
-              p_l4: number
-              p_l5: number
-              p_loyalty: number
-              p_loyalty_level: number
-              p_product_id: string
-            }
+        Args: {
+          p_actor?: string
+          p_is_active?: boolean
+          p_l1?: number
+          p_l10?: number
+          p_l2?: number
+          p_l3?: number
+          p_l4?: number
+          p_l5?: number
+          p_l6?: number
+          p_l7?: number
+          p_l8?: number
+          p_l9?: number
+          p_loyalty?: number
+          p_loyalty_level?: number
+          p_product_id: string
+        }
         Returns: Json
       }
       kmd_update_setting: {
