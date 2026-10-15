@@ -254,7 +254,17 @@ export default function AdminRedemptions() {
       <PageHeader
         title="Redemptions"
         description="Member payout requests. A request can never exceed the member's available points, and points are held from the moment it is submitted."
-        actions={<ExportButton dataset="redemptions" />}
+        actions={
+          <ExportButton
+            dataset="redemptions"
+            filters={{
+              search: search || null,
+              status: status === "all" ? null : status,
+              type: type === "all" ? null : type,
+              includeTest,
+            }}
+          />
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

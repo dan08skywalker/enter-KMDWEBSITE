@@ -202,7 +202,16 @@ export default function AdminOrders() {
       <PageHeader
         title="Orders"
         description="Every purchase record in the system with its payment and reward state."
-        actions={<ExportButton dataset="orders" filters={{ status: status === "all" ? null : status }} />}
+        actions={
+          <ExportButton
+            dataset="orders"
+            filters={{
+              status: status === "all" ? null : status,
+              search: search || null,
+              includeTest,
+            }}
+          />
+        }
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">

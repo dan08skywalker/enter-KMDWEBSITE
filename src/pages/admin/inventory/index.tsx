@@ -229,7 +229,7 @@ export default function AdminInventory() {
       <PageHeader
         title="Inventory"
         description="Stock is reserved when a customer orders and only leaves the shelf once the payment is verified. Reserved units are already spoken for."
-        actions={<ExportButton dataset="inventory" />}
+        actions={<ExportButton dataset="inventory" filters={{ search: search || null }} />}
       />
 
       <FilterBar>

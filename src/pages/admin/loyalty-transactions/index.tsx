@@ -121,7 +121,18 @@ export default function AdminLoyaltyTransactions() {
       <PageHeader
         title="Loyalty Credits"
         description="Adjust a member's loyalty credits by hand, and review the full loyalty credit ledger."
-        actions={<ExportButton dataset="loyalty_ledger" />}
+        actions={
+          <ExportButton
+            dataset="loyalty_ledger"
+            filters={{
+              search: search || null,
+              status: status === "all" ? null : status,
+              from: from || null,
+              to: to || null,
+              includeTest,
+            }}
+          />
+        }
       />
 
       <Tabs defaultValue="adjust">

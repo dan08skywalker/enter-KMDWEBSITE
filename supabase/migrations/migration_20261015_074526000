@@ -1,0 +1,119 @@
+-- Each export now honours the same criteria its screen applies (retry: the orders
+-- anchor needed to allow for the line break the earlier fix left before the semicolon).
+do $$
+declare
+  v_def text;
+  v_start text;
+  v_steps int := 0;
+  v_hits int;
+begin
+  select pg_get_functiondef(p.oid) into v_def
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'kmd_admin_export';
+
+  v_start := v_def;
+  select count(*) into v_hits from regexp_matches(v_def, 'and\s+\(p_filters->>''to''\s+is\s+null\s+or\s+o\.created_at\s*<=\s*\(p_filters->>''to''\)::timestamptz\)\s*;', 'g');
+  if v_hits <> 1 then raise exception 'EXPORT FILTERS | orders anchor matched %', v_hits; end if;
+  v_def := regexp_replace(v_def,
+    'and\s+\(p_filters->>''to''\s+is\s+null\s+or\s+o\.created_at\s*<=\s*\(p_filters->>''to''\)::timestamptz\)\s*;',
+    'and (p_filters->>''to'' is null or o.created_at <= (p_filters->>''to'')::timestamptz)
+      and (coalesce((p_filters->>''includeTest'')::boolean, true) or not coalesce(o.is_test, false))
+      and (p_filters->>''search'' is null
+        or o.order_number ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(o.buyer_member_code,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(o.guest_name,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or exists (select 1 from public.order_items oi where oi.order_id = o.id
+              and (coalesce(oi.sku,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+                or coalesce(oi.product_name,'''') ilike ''%'' || (p_filters->>''search'') || ''%'')));',
+    '');
+  if v_def <> v_start then v_steps := v_steps + 1; end if;
+
+  v_start := v_def;
+  select count(*) into v_hits from regexp_matches(v_def, 'where\s+\(p_filters->>''search''\s+is\s+null\s+or\s+l\.beneficiary_member_code[^;]*;', 'g');
+  if v_hits <> 1 then raise exception 'EXPORT FILTERS | point ledger anchor matched %', v_hits; end if;
+  v_def := regexp_replace(v_def,
+    'where\s+\(p_filters->>''search''\s+is\s+null\s+or\s+l\.beneficiary_member_code[^;]*;',
+    'where (p_filters->>''search'' is null
+        or l.transaction_id ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(l.buyer_member_code,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or l.beneficiary_member_code ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(l.sku,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(l.product_name,'''') ilike ''%'' || (p_filters->>''search'') || ''%'')
+      and (p_filters->>''level'' is null or l.unilevel_level::text = p_filters->>''level'')
+      and (p_filters->>''type'' is null or l.transaction_type = p_filters->>''type'')
+      and (p_filters->>''status'' is null or l.status = p_filters->>''status'')
+      and (p_filters->>''from'' is null or l.created_at >= (p_filters->>''from'')::timestamptz)
+      and (p_filters->>''to'' is null or l.created_at <= (p_filters->>''to'')::timestamptz)
+      and (coalesce((p_filters->>''includeTest'')::boolean, true) or not coalesce(l.is_test, false));',
+    '');
+  if v_def <> v_start then v_steps := v_steps + 1; end if;
+
+  v_start := v_def;
+  select count(*) into v_hits from regexp_matches(v_def, 'from\s+public\.loyalty_credit_ledger\s+l\s*;', 'g');
+  if v_hits <> 1 then raise exception 'EXPORT FILTERS | loyalty anchor matched %', v_hits; end if;
+  v_def := regexp_replace(v_def,
+    'from\s+public\.loyalty_credit_ledger\s+l\s*;',
+    'from public.loyalty_credit_ledger l
+    where (p_filters->>''status'' is null or l.status = p_filters->>''status'')
+      and (p_filters->>''from'' is null or l.created_at >= (p_filters->>''from'')::timestamptz)
+      and (p_filters->>''to'' is null or l.created_at <= (p_filters->>''to'')::timestamptz)
+      and (coalesce((p_filters->>''includeTest'')::boolean, true) or not coalesce(l.is_test, false))
+      and (p_filters->>''search'' is null
+        or l.transaction_id ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(l.buyer_member_code,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or l.beneficiary_member_code ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(l.sku,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(l.product_name,'''') ilike ''%'' || (p_filters->>''search'') || ''%'');',
+    '');
+  if v_def <> v_start then v_steps := v_steps + 1; end if;
+
+  v_start := v_def;
+  select count(*) into v_hits from regexp_matches(v_def, 'and\s+\(p_filters->>''search''\s+is\s+null\s+or\s+p\.member_code[^;]*;', 'g');
+  if v_hits <> 1 then raise exception 'EXPORT FILTERS | members anchor matched %', v_hits; end if;
+  v_def := regexp_replace(v_def,
+    'and\s+\(p_filters->>''search''\s+is\s+null\s+or\s+p\.member_code[^;]*;',
+    'and (p_filters->>''search'' is null or p.member_code ilike ''%'' || (p_filters->>''search'') || ''%''
+        or p.username ilike ''%'' || (p_filters->>''search'') || ''%''
+        or p.full_name ilike ''%'' || (p_filters->>''search'') || ''%''
+        or p.email ilike ''%'' || (p_filters->>''search'') || ''%'')
+      and (coalesce((p_filters->>''includeTest'')::boolean, true) or not coalesce(p.is_test, false));',
+    '');
+  if v_def <> v_start then v_steps := v_steps + 1; end if;
+
+  v_start := v_def;
+  select count(*) into v_hits from regexp_matches(v_def, 'where\s+\(p_filters->>''status''\s+is\s+null\s+or\s+r\.status\s*=\s*p_filters->>''status''\s*\)\s*;', 'g');
+  if v_hits <> 1 then raise exception 'EXPORT FILTERS | redemptions anchor matched %', v_hits; end if;
+  v_def := regexp_replace(v_def,
+    'where\s+\(p_filters->>''status''\s+is\s+null\s+or\s+r\.status\s*=\s*p_filters->>''status''\s*\)\s*;',
+    'where (p_filters->>''status'' is null or r.status = p_filters->>''status'')
+      and (p_filters->>''type'' is null or r.redemption_type = p_filters->>''type'')
+      and (coalesce((p_filters->>''includeTest'')::boolean, true) or not coalesce(r.is_test, false))
+      and (p_filters->>''search'' is null
+        or r.redemption_number ilike ''%'' || (p_filters->>''search'') || ''%''
+        or r.member_code ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(r.gcash_number,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or coalesce(r.bank_account_number,'''') ilike ''%'' || (p_filters->>''search'') || ''%''
+        or exists (select 1 from public.profiles mp where mp.id = r.member_id
+              and mp.full_name ilike ''%'' || (p_filters->>''search'') || ''%''));',
+    '');
+  if v_def <> v_start then v_steps := v_steps + 1; end if;
+
+  v_start := v_def;
+  select count(*) into v_hits from regexp_matches(v_def, 'from\s+public\.products\s+p\s+left\s+join\s+public\.inventory\s+i\s+on\s+i\.product_id\s*=\s*p\.id\s*;', 'g');
+  if v_hits <> 1 then raise exception 'EXPORT FILTERS | inventory anchor matched %', v_hits; end if;
+  v_def := regexp_replace(v_def,
+    'from\s+public\.products\s+p\s+left\s+join\s+public\.inventory\s+i\s+on\s+i\.product_id\s*=\s*p\.id\s*;',
+    'from public.products p left join public.inventory i on i.product_id = p.id
+    where (p_filters->>''search'' is null
+        or p.name ilike ''%'' || (p_filters->>''search'') || ''%''
+        or p.sku ilike ''%'' || (p_filters->>''search'') || ''%'');',
+    '');
+  if v_def <> v_start then v_steps := v_steps + 1; end if;
+
+  if v_steps <> 6 then
+    raise exception 'EXPORT FILTERS | only % of 6 datasets were extended - nothing applied', v_steps;
+  end if;
+
+  execute v_def;
+  raise notice 'EXPORT FILTERS | extended % datasets', v_steps;
+end $$;

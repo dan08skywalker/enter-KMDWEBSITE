@@ -186,7 +186,20 @@ export default function AdminPointTransactions() {
       <PageHeader
         title="Unilevel Points"
         description="Adjust a member's Unilevel Points by hand, and review the full point ledger."
-        actions={<ExportButton dataset="point_ledger" filters={{ search: search || null }} />}
+        actions={
+          <ExportButton
+            dataset="point_ledger"
+            filters={{
+              search: search || null,
+              level: level === "all" ? null : level,
+              type: type === "all" ? null : type,
+              status: status === "all" ? null : status,
+              from: from || null,
+              to: to || null,
+              includeTest,
+            }}
+          />
+        }
       />
 
       <Tabs defaultValue="adjust">

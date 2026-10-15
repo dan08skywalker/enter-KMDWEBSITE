@@ -455,7 +455,14 @@ export default function AdminMembers() {
         description="The member register. Membership state, sponsor placement and balances are administered here and every change is audited."
         actions={
           <>
-            <ExportButton dataset="members" filters={{ search: search || null }} />
+            <ExportButton
+              dataset="members"
+              filters={{
+                search: search || null,
+                status: status === "all" ? null : status,
+                includeTest,
+              }}
+            />
             <Button variant="outline" onClick={() => void load()} disabled={loading}>
               {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               Refresh

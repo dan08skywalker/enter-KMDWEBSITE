@@ -367,7 +367,7 @@ export default function AdminProducts() {
         description="Products, prices and presentation. The promotional price is what checkout charges; the regular price is what it replaces."
         actions={
           <>
-            <ExportButton dataset="inventory" label="Export stock" />
+            <ExportButton dataset="inventory" label="Export stock" filters={{ search: search || null }} />
             <Button type="button" variant="brand" size="sm" onClick={openNew}>
               <Plus className="h-3.5 w-3.5" />
               New product
