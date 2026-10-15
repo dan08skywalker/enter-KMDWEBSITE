@@ -1,0 +1,104 @@
+-- The reward-status diagnostic must expect all ten levels, otherwise an order that
+-- is still owed a Level 6 to Level 10 bonus would be reported as complete.
+-- Only the expected-level set and the fallback default change; the paid side, the
+-- loyalty check and the status wording are untouched.
+create or replace function public.kmd_order_reward_status(p_order_id uuid)
+returns jsonb
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_order public.orders%rowtype;
+  v_max int := 10;
+  v_expected jsonb;
+  v_missing jsonb;
+  v_levels jsonb;
+  v_loyalty_expected boolean := false;
+  v_loyalty_paid boolean := false;
+  v_complete boolean;
+  v_owed int;
+begin
+  select * into v_order from public.orders where id = p_order_id;
+  if not found then
+    return jsonb_build_object('found', false);
+  end if;
+
+  select coalesce((value #>> '{}')::int, 10) into v_max
+    from public.system_settings where key = 'max_unilevel_levels';
+  v_max := coalesce(v_max, 10);
+
+  with matrix as (
+    select distinct lvl.level
+      from public.order_items oi
+      join public.reward_configurations rc on rc.product_id = oi.product_id and rc.is_active
+      cross join lateral (values
+        (1, rc.level1_points), (2, rc.level2_points), (3, rc.level3_points),
+        (4, rc.level4_points), (5, rc.level5_points), (6, rc.level6_points),
+        (7, rc.level7_points), (8, rc.level8_points), (9, rc.level9_points),
+        (10, rc.level10_points)) as lvl(level, points)
+     where oi.order_id = p_order_id
+       and coalesce(lvl.points, 0) > 0
+       and lvl.level <= v_max
+       and v_order.buyer_profile_id is not null
+       and exists (select 1 from public.sponsor_relationships sr
+                     join public.profiles a on a.id = sr.ancestor_id
+                    where sr.descendant_id = v_order.buyer_profile_id
+                      and sr.level = lvl.level
+                      and a.account_status = 'active')
+  ), paid as (
+    select distinct l.unilevel_level as level
+      from public.point_ledger l
+     where l.order_id = p_order_id and l.transaction_type = 'UNILEVEL_BONUS' and l.status = 'posted'
+  )
+  select coalesce(jsonb_agg(distinct m.level order by m.level), '[]'::jsonb),
+         coalesce(jsonb_agg(distinct m.level order by m.level) filter (where p.level is null), '[]'::jsonb),
+         coalesce(jsonb_agg(distinct p.level order by p.level) filter (where p.level is not null), '[]'::jsonb)
+    into v_expected, v_missing, v_levels
+    from matrix m
+    left join paid p on p.level = m.level;
+
+  select exists (
+    select 1 from public.order_items oi
+      join public.reward_configurations rc on rc.product_id = oi.product_id and rc.is_active
+     where oi.order_id = p_order_id and coalesce(rc.loyalty_credit, 0) > 0)
+    and v_order.buyer_profile_id is not null
+    into v_loyalty_expected;
+
+  select exists (
+    select 1 from public.loyalty_credit_ledger c
+     where c.order_id = p_order_id and c.direction = 'CREDIT' and c.status = 'posted')
+    into v_loyalty_paid;
+
+  v_owed := jsonb_array_length(v_expected);
+  v_complete := jsonb_array_length(v_missing) = 0 and (not v_loyalty_expected or v_loyalty_paid);
+
+  return jsonb_build_object(
+    'found', true,
+    'orderId', v_order.id,
+    'orderNumber', v_order.order_number,
+    'orderStatus', v_order.status,
+    'customerType', v_order.customer_type,
+    'rewardFlag', v_order.rewards_processed,
+    'expectedLevels', v_expected,
+    'paidLevels', v_levels,
+    'missingLevels', v_missing,
+    'loyaltyExpected', v_loyalty_expected,
+    'loyaltyPaid', v_loyalty_paid,
+    'complete', v_complete,
+    'status', case
+      when v_complete then 'complete'
+      when v_order.status <> 'confirmed' and not v_order.rewards_processed then 'not_triggered'
+      when not v_order.rewards_processed and (v_owed > 0 or v_loyalty_expected) then 'partial'
+      when v_order.rewards_processed then 'historical'
+      else 'none' end);
+end $$;
+
+revoke all on function public.kmd_order_reward_status(uuid) from public, anon, authenticated;
+grant execute on function public.kmd_order_reward_status(uuid) to service_role;
+
+-- The status of one order, before and after the change: it must keep reporting the
+-- same historical orders as historical, and must now consider all ten levels.
+select jsonb_build_object(
+  'expectedLevels', public.kmd_order_reward_status((select id from public.orders where order_number = 'KMD-ORDER-001130')) -> 'expectedLevels',
+  'paidLevels', public.kmd_order_reward_status((select id from public.orders where order_number = 'KMD-ORDER-001130')) -> 'paidLevels',
+  'missingLevels', public.kmd_order_reward_status((select id from public.orders where order_number = 'KMD-ORDER-001130')) -> 'missingLevels',
+  'status', public.kmd_order_reward_status((select id from public.orders where order_number = 'KMD-ORDER-001130')) -> 'status'
+)::text as status_of_a_historical_order;

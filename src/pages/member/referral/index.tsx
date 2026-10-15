@@ -170,7 +170,7 @@ export default function MemberReferral() {
               3
             </span>
             When their purchase is qualified (payment confirmed), the reward engine traces Level 1 to
-            Level 5 and posts the configured bonus to each eligible upline's ledger.
+            Level 10 and posts the configured bonus to each eligible upline's ledger.
           </li>
           <li className="flex gap-3">
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-bold text-primary">

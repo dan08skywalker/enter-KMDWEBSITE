@@ -366,7 +366,7 @@ export function PaymentDetailsDialog({
                   </Button>
                 }
                 title={`Approve the payment for ${row.order.order_number}?`}
-                description="This runs the reward engine once for this payment: Level 1 to Level 5 are traced, each configured bonus is calculated and the ledger entries are posted in a single transaction. Confirming a second time returns 'already processed' and pays nothing extra."
+                description="This runs the reward engine once for this payment: Level 1 to Level 10 are traced, each configured bonus is calculated and the ledger entries are posted in a single transaction. Confirming a second time returns 'already processed' and pays nothing extra."
                 confirmLabel="Approve and run the engine"
                 reasonRequired
                 reasonLabel="Reason for approving"

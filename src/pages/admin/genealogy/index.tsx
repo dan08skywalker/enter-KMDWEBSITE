@@ -167,7 +167,7 @@ export default function AdminGenealogy() {
     <>
       <PageHeader
         title="Genealogy"
-        description="Trace any member's sponsor tree, Level 1 to Level 5, from the real Sponsor IDs stored in the database."
+        description="Trace any member's sponsor tree, Level 1 to Level 10, from the real Sponsor IDs stored in the database."
       />
 
       <div className="kmd-panel p-4">
@@ -210,7 +210,7 @@ export default function AdminGenealogy() {
           <EmptyState
             icon={ListTree}
             title="Choose a member to inspect"
-            description="Search for a member above to load their five-level genealogy. Selecting any node in the tree makes that member the new root."
+            description="Search for a member above to load their ten-level genealogy. Selecting any node in the tree makes that member the new root."
           />
         </div>
       ) : loading ? (

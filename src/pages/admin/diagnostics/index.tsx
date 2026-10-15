@@ -120,7 +120,7 @@ export default function AdminDiagnostics() {
       <div className="kmd-panel border-dashed p-4">
         <p className="text-xs text-muted-foreground">
           The checklist verifies the purchase row, payment confirmation, Product ID and SKU match, buyer
-          record, the Level 1 to Level 5 sponsor trace, the points calculation, the point and loyalty
+          record, the Level 1 to Level 10 sponsor trace, the points calculation, the point and loyalty
           ledger rows, the backend response and whether the displayed balances still agree with the
           ledger.
         </p>
@@ -234,7 +234,7 @@ export default function AdminDiagnostics() {
                       </Button>
                     }
                     title="Retry reward processing for this order?"
-                    description="The engine traces Level 1 to Level 5, calculates each configured bonus and posts the ledger entries in one transaction."
+                    description="The engine traces Level 1 to Level 10, calculates each configured bonus and posts the ledger entries in one transaction."
                     confirmLabel="Retry now"
                     reasonRequired
                     reasonLabel="Reason for the retry"

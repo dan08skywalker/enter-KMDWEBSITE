@@ -1,0 +1,216 @@
+-- UNILEVEL EXTENSION TO LEVEL 10 — part 1 of 2: storage, genealogy depth, configuration.
+--
+-- Additive maintenance of the existing compensation tables. No row is deleted or
+-- rewritten: levels 1-5 keep their current values, existing ledger entries are
+-- untouched, and no balance is recalculated.
+
+-- 1. Five more per-level columns beside the existing five. Zeros are a valid,
+--    intentional configuration and stay zeros.
+alter table public.reward_configurations
+  add column if not exists level6_points numeric(14,2) not null default 0 check (level6_points >= 0),
+  add column if not exists level7_points numeric(14,2) not null default 0 check (level7_points >= 0),
+  add column if not exists level8_points numeric(14,2) not null default 0 check (level8_points >= 0),
+  add column if not exists level9_points numeric(14,2) not null default 0 check (level9_points >= 0),
+  add column if not exists level10_points numeric(14,2) not null default 0 check (level10_points >= 0);
+
+comment on column public.reward_configurations.level6_points is 'Unilevel points per qualified unit at level 6 (0 means no points at that level).';
+comment on column public.reward_configurations.level10_points is 'Unilevel points per qualified unit at level 10. The engine stops here and never pays an 11th level.';
+
+-- 2. The genealogy closure may now hold ten levels. Existing rows (1-5) stay as they are.
+alter table public.sponsor_relationships drop constraint if exists sponsor_relationships_level_check;
+alter table public.sponsor_relationships
+  add constraint sponsor_relationships_level_check check (level between 1 and 10);
+
+-- 3. The number of levels the engine traces. Read by the engine at run time.
+update public.system_settings
+   set value = '10'::jsonb, updated_at = now()
+ where key = 'max_unilevel_levels';
+
+-- 4. New registrations now close the genealogy to ten levels instead of five.
+--    Everything else in the registration function is unchanged: same validation,
+--    same duplicate rules, same member code format, same audit behaviour.
+create or replace function public.kmd_register_member(
+  p_user_id uuid,
+  p_email text,
+  p_username text,
+  p_first_name text,
+  p_last_name text,
+  p_mobile text,
+  p_sponsor_code text default null,
+  p_account_type text default 'member',
+  p_is_test boolean default false
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_seq bigint;
+  v_pad text;
+  v_code text;
+  v_sponsor public.profiles%rowtype;
+  v_sponsor_id uuid;
+  v_sponsor_code text;
+begin
+  if p_username is null or length(trim(p_username)) < 3 then
+    raise exception 'KMD_VALIDATION: username must be at least 3 characters';
+  end if;
+  if p_email is null or p_email !~ '^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$' then
+    raise exception 'KMD_VALIDATION: a valid email address is required';
+  end if;
+  if p_first_name is null or length(trim(p_first_name)) = 0 then
+    raise exception 'KMD_VALIDATION: first name is required';
+  end if;
+  if exists (select 1 from public.profiles where lower(username) = lower(trim(p_username))) then
+    raise exception 'KMD_DUPLICATE_USERNAME: that username is already taken';
+  end if;
+  if exists (select 1 from public.profiles where lower(email) = lower(trim(p_email))) then
+    raise exception 'KMD_DUPLICATE_EMAIL: that email address is already registered';
+  end if;
+
+  if p_sponsor_code is not null and length(trim(p_sponsor_code)) > 0 then
+    select * into v_sponsor from public.profiles p
+      where upper(p.referral_code) = upper(trim(p_sponsor_code))
+         or upper(p.member_code) = upper(trim(p_sponsor_code));
+    if not found then
+      raise exception 'KMD_INVALID_SPONSOR: sponsor ID % does not exist', p_sponsor_code;
+    end if;
+    v_sponsor_id := v_sponsor.id;
+    v_sponsor_code := v_sponsor.member_code;
+  end if;
+
+  v_seq := nextval('public.kmd_member_code_seq');
+  v_pad := lpad(v_seq::text, 16, '0');
+  v_code := 'KMD-' || substr(v_pad,1,4) || '-' || substr(v_pad,5,4) || '-' || substr(v_pad,9,4) || '-' || substr(v_pad,13,4);
+
+  insert into public.profiles (
+    id, member_code, referral_code, username, first_name, last_name, mobile_number, email,
+    sponsor_code, direct_sponsor_id, account_type, account_status, is_test
+  ) values (
+    p_user_id, v_code, v_code, trim(p_username), trim(p_first_name), trim(p_last_name),
+    nullif(trim(coalesce(p_mobile,'')), ''), lower(trim(p_email)),
+    v_sponsor_code, v_sponsor_id, coalesce(p_account_type,'member'), 'pending', coalesce(p_is_test,false)
+  );
+
+  if v_sponsor_id is not null then
+    insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+    values (p_user_id, v_sponsor_id, 1);
+
+    -- Levels 2 to 10, copied from the sponsor's own chain. A chain that is only
+    -- three deep simply produces three rows: the loop stops where it runs out.
+    insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+    select p_user_id, sr.ancestor_id, sr.level + 1
+    from public.sponsor_relationships sr
+    where sr.descendant_id = v_sponsor_id and sr.level < 10;
+  end if;
+
+  insert into public.user_roles (user_id, role) values (p_user_id, coalesce(p_account_type,'member'))
+  on conflict (user_id, role) do nothing;
+
+  return jsonb_build_object(
+    'memberCode', v_code,
+    'referralCode', v_code,
+    'referralLink', '/register?ref=' || v_code,
+    'sponsorMemberCode', v_sponsor_code,
+    'sponsorName', case when v_sponsor_id is null then null else v_sponsor.first_name || ' ' || v_sponsor.last_name end,
+    'accountStatus', 'pending'
+  );
+end $$;
+
+revoke all on function public.kmd_register_member(uuid,text,text,text,text,text,text,text,boolean) from public, anon, authenticated;
+grant execute on function public.kmd_register_member(uuid,text,text,text,text,text,text,text,boolean) to service_role;
+
+-- 5. Existing members keep the rows they already have, and gain levels 6 to 10
+--    derived from the sponsor chain that is already recorded. Nothing is moved or
+--    removed, and where the chain genuinely ends earlier, no row is invented.
+with recursive chain as (
+  select p.id as descendant_id, p.direct_sponsor_id as ancestor_id, 1 as level
+    from public.profiles p
+   where p.direct_sponsor_id is not null
+  union all
+  select c.descendant_id, a.direct_sponsor_id, c.level + 1
+    from chain c
+    join public.profiles a on a.id = c.ancestor_id
+   where a.direct_sponsor_id is not null and c.level < 10
+)
+insert into public.sponsor_relationships (descendant_id, ancestor_id, level)
+select descendant_id, ancestor_id, level from chain
+on conflict (descendant_id, level) do nothing;
+
+-- 6. The configuration function accepts and stores the five new levels.
+create or replace function public.kmd_update_reward_config(
+  p_product_id uuid,
+  p_l1 numeric,
+  p_l2 numeric,
+  p_l3 numeric,
+  p_l4 numeric,
+  p_l5 numeric,
+  p_loyalty numeric,
+  p_loyalty_level integer,
+  p_is_active boolean,
+  p_actor uuid,
+  p_l6 numeric default 0,
+  p_l7 numeric default 0,
+  p_l8 numeric default 0,
+  p_l9 numeric default 0,
+  p_l10 numeric default 0
+) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare
+  v_before public.reward_configurations%rowtype;
+  v_after public.reward_configurations%rowtype;
+begin
+  select * into v_before from public.reward_configurations where product_id = p_product_id;
+  if not found then
+    return jsonb_build_object('status','FAILED','reason','REWARD_CONFIGURATION_NOT_FOUND',
+      'reasonText','No reward configuration exists for that product');
+  end if;
+
+  -- Loyalty keeps its own range: it is a separate reward type, not an 11th level.
+  if p_loyalty_level not in (1,2,3,4,5) then
+    return jsonb_build_object('status','FAILED','reason','INVALID_LOYALTY_LEVEL',
+      'reasonText','Loyalty beneficiary level must be between 1 and 5');
+  end if;
+
+  update public.reward_configurations
+    set level1_points = greatest(coalesce(p_l1,0), 0),
+        level2_points = greatest(coalesce(p_l2,0), 0),
+        level3_points = greatest(coalesce(p_l3,0), 0),
+        level4_points = greatest(coalesce(p_l4,0), 0),
+        level5_points = greatest(coalesce(p_l5,0), 0),
+        level6_points = greatest(coalesce(p_l6,0), 0),
+        level7_points = greatest(coalesce(p_l7,0), 0),
+        level8_points = greatest(coalesce(p_l8,0), 0),
+        level9_points = greatest(coalesce(p_l9,0), 0),
+        level10_points = greatest(coalesce(p_l10,0), 0),
+        loyalty_credit = greatest(coalesce(p_loyalty,0), 0),
+        loyalty_beneficiary_level = p_loyalty_level,
+        is_active = coalesce(p_is_active, true),
+        updated_by = p_actor
+    where product_id = p_product_id
+    returning * into v_after;
+
+  perform public.kmd_audit(p_actor, 'REWARD_CONFIGURATION_CHANGE', null, null,
+    'reward_configurations', p_product_id::text,
+    jsonb_build_object('level1', v_before.level1_points, 'level2', v_before.level2_points,
+      'level3', v_before.level3_points, 'level4', v_before.level4_points, 'level5', v_before.level5_points,
+      'level6', v_before.level6_points, 'level7', v_before.level7_points, 'level8', v_before.level8_points,
+      'level9', v_before.level9_points, 'level10', v_before.level10_points,
+      'loyaltyCredit', v_before.loyalty_credit, 'loyaltyLevel', v_before.loyalty_beneficiary_level,
+      'isActive', v_before.is_active),
+    jsonb_build_object('level1', v_after.level1_points, 'level2', v_after.level2_points,
+      'level3', v_after.level3_points, 'level4', v_after.level4_points, 'level5', v_after.level5_points,
+      'level6', v_after.level6_points, 'level7', v_after.level7_points, 'level8', v_after.level8_points,
+      'level9', v_after.level9_points, 'level10', v_after.level10_points,
+      'loyaltyCredit', v_after.loyalty_credit, 'loyaltyLevel', v_after.loyalty_beneficiary_level,
+      'isActive', v_after.is_active),
+    'Reward configuration updated for SKU ' || v_after.sku, false);
+
+  return jsonb_build_object('status','UPDATED','sku', v_after.sku,
+    'configuration', to_jsonb(v_after), 'reasonText','Reward configuration saved and audited');
+end $$;
+
+revoke all on function public.kmd_update_reward_config(uuid,numeric,numeric,numeric,numeric,numeric,numeric,integer,boolean,uuid,numeric,numeric,numeric,numeric,numeric) from public, anon, authenticated;
+grant execute on function public.kmd_update_reward_config(uuid,numeric,numeric,numeric,numeric,numeric,numeric,integer,boolean,uuid,numeric,numeric,numeric,numeric,numeric) to service_role;
+
+select 'reward columns' as check_name, count(*)::text as value from information_schema.columns where table_schema='public' and table_name='reward_configurations' and column_name ~ '^level([0-9]+)_points$'
+union all select 'levels the engine traces', (select value #>> '{}' from public.system_settings where key='max_unilevel_levels')
+union all select 'deepest genealogy level stored', (select max(level)::text from public.sponsor_relationships)
+union all select 'members with a level 10 ancestor', (select count(*)::text from public.sponsor_relationships where level = 10);

@@ -18,7 +18,7 @@ const MEMBER_BENEFITS = [
     icon: Coins,
     title: "Unilevel points",
     detail:
-      "Earn when a purchase in your registered sponsor chain is paid and confirmed — up to five levels up from the buyer.",
+      "Earn when a purchase in your registered sponsor chain is paid and confirmed — up to ten levels up from the buyer.",
   },
   {
     icon: Sparkles,

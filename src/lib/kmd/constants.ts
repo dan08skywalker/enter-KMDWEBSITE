@@ -15,7 +15,22 @@ export const BANKS = [
 
 export const OTHER_BANK = "Other Bank";
 
-export const UNILEVEL_LEVELS = [1, 2, 3, 4, 5] as const;
+/**
+ * Compensated Unilevel levels, 1 to 10.
+ *
+ * Every screen that lists or filters levels reads this constant, so extending the
+ * plan here extends the matrix columns, the filters and the member breakdowns
+ * together. The database mirrors it through the `max_unilevel_levels` setting and
+ * the per-level columns on `reward_configurations`.
+ */
+export const UNILEVEL_LEVELS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+
+/**
+ * Levels a Loyalty Credit may be assigned to. Loyalty is a separate reward type
+ * with its own ledger and its own rule, so it keeps its original range and is not
+ * widened by the Unilevel extension.
+ */
+export const LOYALTY_BENEFICIARY_LEVELS = [1, 2, 3, 4, 5] as const;
 
 export const MEMBER_ID_FORMAT = "KMD-0000-0000-0000-0000";
 

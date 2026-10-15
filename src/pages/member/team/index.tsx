@@ -164,7 +164,7 @@ export default function MemberTeam() {
     <>
       <PageHeader
         title="My Team"
-        description="Your five-level sponsor network, built from the real Sponsor IDs recorded at registration."
+        description="Your ten-level sponsor network, built from the real Sponsor IDs recorded at registration."
         actions={
           <Button asChild variant="outline">
             <Link to="/app/genealogy">

@@ -205,7 +205,7 @@ export default function AdminSettings() {
               <Separator />
               <div className="flex items-center justify-between">
                 <dt className="text-muted-foreground">Unilevel levels</dt>
-                <dd>{UNILEVEL_LEVELS.length} (Level 1 to Level 5)</dd>
+                <dd>{UNILEVEL_LEVELS.length} (Level 1 to Level 10)</dd>
               </div>
               <Separator />
               <div className="flex items-center justify-between">

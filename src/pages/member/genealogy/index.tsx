@@ -134,7 +134,7 @@ export default function MemberGenealogy() {
     <>
       <PageHeader
         title="Genealogy"
-        description="Your sponsor tree from Level 1 to Level 5, traced from the Sponsor IDs stored in the database."
+        description="Your sponsor tree from Level 1 to Level 10, traced from the Sponsor IDs stored in the database."
       />
 
       <div className="flex flex-wrap items-center gap-2">

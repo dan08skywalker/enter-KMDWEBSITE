@@ -29,7 +29,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { formatDate, formatPoints } from "@/lib/kmd/format";
-import { UNILEVEL_LEVELS } from "@/lib/kmd/constants";
+import { LOYALTY_BENEFICIARY_LEVELS, UNILEVEL_LEVELS } from "@/lib/kmd/constants";
 import type { Product, RewardConfiguration } from "@/lib/kmd/types";
 
 interface MatrixRow extends RewardConfiguration {
@@ -42,6 +42,11 @@ interface ConfigForm {
   level3: string;
   level4: string;
   level5: string;
+  level6: string;
+  level7: string;
+  level8: string;
+  level9: string;
+  level10: string;
   loyaltyCredit: string;
   loyaltyBeneficiaryLevel: string;
   isActive: boolean;
@@ -88,6 +93,11 @@ export default function AdminRewardConfiguration() {
       level3: String(row.level3_points),
       level4: String(row.level4_points),
       level5: String(row.level5_points),
+      level6: String(row.level6_points),
+      level7: String(row.level7_points),
+      level8: String(row.level8_points),
+      level9: String(row.level9_points),
+      level10: String(row.level10_points),
       loyaltyCredit: String(row.loyalty_credit),
       loyaltyBeneficiaryLevel: String(row.loyalty_beneficiary_level),
       isActive: row.is_active,
@@ -105,6 +115,11 @@ export default function AdminRewardConfiguration() {
       level3: Number(form.level3) || 0,
       level4: Number(form.level4) || 0,
       level5: Number(form.level5) || 0,
+      level6: Number(form.level6) || 0,
+      level7: Number(form.level7) || 0,
+      level8: Number(form.level8) || 0,
+      level9: Number(form.level9) || 0,
+      level10: Number(form.level10) || 0,
       loyaltyCredit: Number(form.loyaltyCredit) || 0,
       loyaltyBeneficiaryLevel: Number(form.loyaltyBeneficiaryLevel) || 1,
       isActive: form.isActive,
@@ -246,12 +261,13 @@ export default function AdminRewardConfiguration() {
         <div className="flex items-start gap-3">
           <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-[hsl(var(--gold))]" />
           <div className="space-y-1 text-xs">
-            <p className="font-semibold">Level 3, Level 4, Level 5 and every Loyalty Credit ship as 0.</p>
+            <p className="font-semibold">Set every level to what your plan actually pays, including Level 6 to Level 10.</p>
             <p className="text-muted-foreground">
-              The system deliberately does not invent compensation values. Level 1 and Level 2 already
-              hold the launch values (Trial Pack 150 / 20, Classic 300 / 40, Gold 600 / 100, Platinum
-              5000 / 300, Dokudami 10 / 5 per unit). A level configured at 0 creates no ledger row for
-              that level, and changing a value never rewrites ledger entries that were already posted.
+              The plan now compensates ten levels. The system never invents a value: a level set to 0
+              deliberately pays nothing and creates no ledger row, which is a valid configuration —
+              several products are configured that way beyond the levels they actually pay. Changing a
+              value affects future qualified purchases only, and never rewrites ledger entries that were
+              already posted.
             </p>
           </div>
         </div>
@@ -380,7 +396,7 @@ export default function AdminRewardConfiguration() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {UNILEVEL_LEVELS.map((level) => (
+                        {LOYALTY_BENEFICIARY_LEVELS.map((level) => (
                           <SelectItem key={level} value={String(level)}>
                             Level {level}
                           </SelectItem>

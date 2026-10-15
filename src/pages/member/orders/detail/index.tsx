@@ -665,7 +665,7 @@ export default function MemberOrderDetail() {
         <div className="kmd-panel p-5">
           <h2 className="text-sm font-semibold">Reward outcome</h2>
           <p className="mt-1 text-xs text-muted-foreground">
-            A qualified purchase distributes bonuses to your sponsor chain (Level 1 to Level 5) and
+            A qualified purchase distributes bonuses to your sponsor chain (Level 1 to Level 10) and
             records them in an immutable ledger. Each member sees only their own ledger rows.
           </p>
 

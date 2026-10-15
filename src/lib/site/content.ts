@@ -156,7 +156,7 @@ export const FAQS: FaqEntry[] = [
   {
     question: "What is the Unilevel plan?",
     answer:
-      "Members earn Unilevel points when a purchase in their registered sponsor chain is paid and confirmed — up to five levels up from the buyer. The value paid at each level is configured per product by the administrator, and every payment is written to a permanent ledger so balances always agree with the history. A purchase earns nothing until payment is confirmed.",
+      "Members earn Unilevel points when a purchase in their registered sponsor chain is paid and confirmed — up to ten levels up from the buyer. The value paid at each level is configured per product by the administrator, and every payment is written to a permanent ledger so balances always agree with the history. A purchase earns nothing until payment is confirmed.",
   },
   {
     question: "How do I become a member?",
@@ -357,9 +357,9 @@ export const KNOWLEDGE_GUIDES: KnowledgeGuide[] = [
   },
   {
     slug: "how-the-unilevel-plan-works",
-    title: "How the five-level Unilevel plan works",
+    title: "How the ten-level Unilevel plan works",
     summary:
-      "A plain-language explanation of how a purchase turns into points across five levels.",
+      "A plain-language explanation of how a purchase turns into points across ten levels.",
     bullets: [
       "A purchase earns nothing on its own. Rewards are released only when the payment is confirmed.",
       "When it is confirmed the system traces upward from the buyer through the registered sponsor chain and pays each eligible level.",

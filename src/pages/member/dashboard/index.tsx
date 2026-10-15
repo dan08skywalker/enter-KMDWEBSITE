@@ -564,7 +564,7 @@ export default function MemberDashboard() {
               <EmptyState
                 icon={TrendingUp}
                 title="No bonuses yet"
-                description="Level 1 to Level 5 bonuses are credited automatically once a purchase is qualified."
+                description="Level 1 to Level 10 bonuses are credited automatically once a purchase is qualified."
               />
             ) : (
               recentBonuses.map((row) => (

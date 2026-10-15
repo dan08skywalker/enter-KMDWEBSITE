@@ -101,6 +101,11 @@ export interface RewardConfiguration {
   level3_points: number;
   level4_points: number;
   level5_points: number;
+  level6_points: number;
+  level7_points: number;
+  level8_points: number;
+  level9_points: number;
+  level10_points: number;
   loyalty_credit: number;
   loyalty_beneficiary_level: number;
   is_active: boolean;

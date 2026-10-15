@@ -38,7 +38,12 @@ const LEVELS = [
   { level: 2, detail: "The people your direct referrals brought in." },
   { level: 3, detail: "Traced automatically from the sponsor chain." },
   { level: 4, detail: "Traced automatically from the sponsor chain." },
-  { level: 5, detail: "The fifth upline — the end of the compensation trace." },
+  { level: 5, detail: "Traced automatically from the sponsor chain." },
+  { level: 6, detail: "Traced automatically from the sponsor chain." },
+  { level: 7, detail: "Traced automatically from the sponsor chain." },
+  { level: 8, detail: "Traced automatically from the sponsor chain." },
+  { level: 9, detail: "Traced automatically from the sponsor chain." },
+  { level: 10, detail: "The tenth upline — the end of the compensation trace." },
 ];
 
 export default function ReferralProgramPage() {
@@ -46,7 +51,7 @@ export default function ReferralProgramPage() {
     <SiteShell>
       <PageHero
         eyebrow="Referral program"
-        title="A five-level Unilevel plan, written to a ledger"
+        title="A ten-level Unilevel plan, written to a ledger"
         intro="The plan is deliberately simple: a purchase earns nothing until it is paid and confirmed, and once it is, the system traces upward through the registered sponsor chain and pays each eligible level."
       >
         <div className="flex flex-wrap gap-3">
@@ -78,7 +83,7 @@ export default function ReferralProgramPage() {
         </div>
       </Section>
 
-      <Section tone="muted" title="The five levels">
+      <Section tone="muted" title="The ten levels">
         <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {LEVELS.map((row) => (
             <li key={row.level} className="kmd-panel p-4">

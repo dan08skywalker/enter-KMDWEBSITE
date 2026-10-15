@@ -354,7 +354,7 @@ export default function AdminOrderDetail() {
               </Button>
             }
             title="Confirm this payment?"
-            description="This runs the reward engine once for this order: it traces Level 1 to Level 5, calculates each configured bonus and posts the ledger entries. A second confirmation returns 'already processed' and pays nothing extra."
+            description="This runs the reward engine once for this order: it traces Level 1 to Level 10, calculates each configured bonus and posts the ledger entries. A second confirmation returns 'already processed' and pays nothing extra."
             confirmLabel="Confirm payment and run the engine"
             reasonRequired
             reasonLabel="Reason for confirming"
