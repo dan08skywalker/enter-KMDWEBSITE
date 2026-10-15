@@ -36,20 +36,27 @@ export function ExportButton({
 
   const run = async () => {
     setBusy(true);
-    const outcome = await invokeFunction<ExportResult>("admin-actions", {
+    const outcome = await invokeFunction<{ result?: ExportResult }>("admin-actions", {
       action: "export_data",
       dataset,
       filters,
     });
     setBusy(false);
 
-    if (!outcome.ok || !outcome.data) {
+    // Every administrator action is answered as { ok, result }, so the export payload
+    // lives under `result`. Reading it flat found nothing and reported a failure even
+    // when the backend had built the file correctly.
+    const result = outcome.data?.result;
+
+    if (!outcome.ok || !result) {
+      // Logged so a failure can be diagnosed from the console without guessing.
+      console.error("Export failed:", { dataset, filters, error: outcome.error, response: outcome.data });
       toast.error(outcome.error ?? "The export could not be built");
       return;
     }
 
-    const result = outcome.data;
     if (result.status === "FAILED" || !result.columns || !result.rows) {
+      console.error("Export refused by the backend:", { dataset, filters, result });
       toast.error(result.reasonText ?? "The export could not be built");
       return;
     }
